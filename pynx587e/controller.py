@@ -10,7 +10,6 @@ import serial
 from pynx587e.serialreader import Serialreader
 from pynx587e.flexdevice import FlexDevice
 
-
 ZONE_ELEMENTS = [
     'fault',
     'tamper',
@@ -36,8 +35,13 @@ PARTITION_ELEMENTS = [
 
 NX_MESSAGE_TYPES={
     "ZN":ZONE_ELEMENTS,
-    "PN":PARTITION_ELEMENTS
+    "PA":PARTITION_ELEMENTS
 }   
+
+NX_MAX_DEVICES={
+    "ZN":48,
+    "PA":2,
+}
 
 class nx857e:
     
@@ -54,14 +58,28 @@ class nx857e:
         self._raw_event_q = queue.Queue(maxsize=0)
         self._consumer_q = queue.Queue(maxsize=0)
         
-        self.zoneBank = []
+
+        # Create deviceBank from NX_MAX_DEVICIES definition to represent
+        # the defined number of devices (e.g. Zones and Partitions)
+        self.deviceBank = {}
+        for device, max_item in NX_MAX_DEVICES.items():
+            self.deviceBank[device] = []
+            i = 0
+            while i < max_item:
+                self.deviceBank[device].append(FlexDevice(NX_MESSAGE_TYPES[device]))
+                i = i+1
+
+        ## Delete below
+        #self.zoneBank = []
 
         # Zone state array
-        i = 0
-        while i < self._max_zone:
-            zone = FlexDevice(ZONE_ELEMENTS)
-            self.zoneBank.append(zone)
-            i = i+1
+        #i = 0
+        #while i < self._max_zone:
+        #    zone = FlexDevice(ZONE_ELEMENTS)
+        #    self.zoneBank.append(zone)
+        #    i = i+1
+
+        # Delete above
 
         # NOTE: Thread creation happens in _control
         self._control()
@@ -82,34 +100,50 @@ class nx857e:
         time.sleep(0.25)
     
 
+    def _processEvent(self,raw_event):
+        for key_nxMsgtypes in NX_MESSAGE_TYPES:
+        #for key_nxMsgtypes, value_nxMsgtypes in NX_MESSAGE_TYPES.items():
+            if raw_event[0:2] == key_nxMsgtypes:
+                # ID
+                if raw_event[2:5].isnumeric():
+                    # 3 digit ID
+                    string_id = raw_event[2:5]
+                    id = int(string_id)
+                    start_char = 5
+                elif raw_event[2:3].isnumeric():
+                    # 2 digit ID
+                    string_id = raw_event[2:3]
+                    id = int(string_id)
+                    start_char = 3
 
-    def _processEvent(self, raw_event):
-        if raw_event[0:2] == "ZN":
-            # get Zone ID (3 chars to int)
-            id = int(raw_event[2:5])
-            
-            # Construct a dictionary to represent the current state of the zone
-            NXZoneEventStream = {}
-            for i, v in enumerate(raw_event[5:13]):
-                NXZoneEventStream[ZONE_ELEMENTS[i]] = v.isupper()
-            
-            # Iterate through the NXZoneEventStream items (current message)
-            # and compare each item value with that of previous message in
-            # zoneBank that maintains state.
-            for key, value in NXZoneEventStream.items():
-                if self.zoneBank[id].get(key) != value:
-                    self.zoneBank[id].set(key, value)
-                    event = {"event":"ZN",
-                                "id":id,
-                                "tag":key,
-                                "value":value,
-                                "time":self.zoneBank[id].get(str(key+'_time'))
-                            }
-                    self.callbackf(event)
+                #Construct a dictionary to represent the msg
+                NXMessage = {}
+                for i, v in enumerate(raw_event[start_char:len(raw_event)-1]):
+                    NXMessage[NX_MESSAGE_TYPES[key_nxMsgtypes][i]] = v.isupper()
+                
+                # Iterate through the NXMessage items (current message)
+                # and compare each item value with that of previous message in
+                # zoneBank that maintains state.
+
+                # Message ID is within defined range
+                if id <= NX_MAX_DEVICES[key_nxMsgtypes]:
+                    for msg_key, msg_value in NXMessage.items():
+                        if self.deviceBank[key_nxMsgtypes][id-1].get(msg_key) != msg_value:
+                            self.deviceBank[key_nxMsgtypes][id-1].set(msg_key, msg_value)
+                            event = {"event":key_nxMsgtypes,
+                                    "id":id,
+                                    "tag":msg_key,
+                                    "value":msg_value,
+                                    "time": self.deviceBank[key_nxMsgtypes][id-1].get(str(msg_key+'_time'))
+                                    }
+                            # call back function
+                            self.callbackf(event)
+                        else:
+                            # Message not supported
+                            pass
                 else:
+                    # Recieved a message with an ID > MAX devices, ignore message
                     pass
-                    #print("No update required")
-
 
     def _serial_writer(self,serial_conn,command_q):
         """
