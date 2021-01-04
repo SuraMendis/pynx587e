@@ -15,3 +15,6 @@ venv.bak/
 # Sandbox
 sandbox.py
 app-harness.py
+
+# IDE
+.vscode
