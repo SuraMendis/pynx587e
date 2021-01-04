@@ -11,57 +11,93 @@ from pynx587e.serialreader import Serialreader
 from pynx587e.flexdevice import FlexDevice
 
 
-ZONE_ELEMENTS = [
-    'fault',
-    'tamper',
-    'trouble',
-    'bypass',
-    'alarmMemory',
-    'inhibit',
-    'lowBattery',
-    'lost',
-    'memoryBypass',
-    ]
-
-PARTITION_ELEMENTS = [
-    'ready',
-    'armed',
-    'stay',
-    'chime',
-    'entryDelay',
-    'exitPeriod',
-    'previousAlarm',
-    'siren'
-    ]
-
-NX_MESSAGE_TYPES={
-    "ZN":ZONE_ELEMENTS,
-    "PN":PARTITION_ELEMENTS
-}   
 
 class nx857e:
-    
-    def __init__(self, port, max_zone, cb):
-        # TODO: PEP8 review
+    def __init__(self, port, max_zone,max_partitions, cb):
+
+        # A Zone Status Message syntax is like: ZN002FttBaillb where:
+        #  ZN = Zone Identifer
+        #  002 = The Zone Number/ID
+        #  FttBaillb = each character relates to the definition
+        #  (upper case true; else false)
+        #  in the _ZONE_ELEMENTS list below (order is important)
+        self._ZONE_ELEMENTS = [
+            'fault',
+            'tamper',
+            'trouble',
+            'bypass',
+            'alarmMemory',
+            'inhibit',
+            'lowBattery',
+            'lost',
+            'memoryBypass',
+        ]
+
+        # A Partition Status Message syntax is like: PA1RasCeEps where:
+        #  PN = Partition Identifer
+        #  1 = The Partition Number/ID
+        #  RasCeEps = each character relates to the definition 
+        #  (upper case true; else false) in the _ZONE_ELEMENTS list
+        #  below (order is important)
+        self._PARTITION_ELEMENTS = [
+            'ready',
+            'armed',
+            'stay',
+            'chime',
+            'entryDelay',
+            'exitPeriod',
+            'previousAlarm',
+            'siren'
+        ]
+
+        # _NX_MESSAGE_TYPES is a dictionary that defines supported
+        # message types. The key is the message type and the value
+        # is the previously defined elements (e.g _PARTITION_ELEMENTS)
+        self._NX_MESSAGE_TYPES={
+            "ZN":self._ZONE_ELEMENTS,
+            "PA":self._PARTITION_ELEMENTS
+        }   
+
+        # Define the number of devices in the alarm system
+        # e.g "ZN":48 means the highest Zone number is 48
+        self._NX_MAX_DEVICES={
+            "ZN":max_zone,
+            "PA":max_partitions,
+        }
+
+        # Serial port the NX587E is attached to
+        # Windows e.g: COM1
+        # Linux e.g /dev/ttyUSB0
         self._port = port
-        self._max_zone = max_zone
+
+        # The callback function called when a partition or zone
+        # stauts changes
         self.callbackf = cb
+
+        # Configuration string for NX-587E
+        # This value is lost if the NX-587E loses power from the
+        # alarm panel.
+        # TODO: START_UP_OPTIONS should be periodically sent to
+        #       the NX587E to mitigate effect of power loss
         START_UP_OPTIONS='taliPZn'
+
+        # Disconnection flag
         self._run_flag = True
 
-        # Quues for thread communication
+        # Queues for thread communication
         self._command_q = queue.Queue(maxsize=0)
         self._raw_event_q = queue.Queue(maxsize=0)
         self._consumer_q = queue.Queue(maxsize=0)
         
-        self.zoneBank = []
-
-        # Zone state array
-        i = 0
-        while i < self._max_zone:
-            zone = FlexDevice(ZONE_ELEMENTS)
-            self.zoneBank.append(zone)
-            i = i+1
+        # Create deviceBank from NX_MAX_DEVICES definition to represent
+        # the defined number of devices (e.g. Zones and Partitions)
+        self.deviceBank = {}
+        for device, max_item in self._NX_MAX_DEVICES.items():
+            self.deviceBank[device] = []
+            i = 0
+            while i < max_item:
+                self.deviceBank[device].append(FlexDevice(self._NX_MESSAGE_TYPES[device]))
+                i = i+1
 
         # NOTE: Thread creation happens in _control
         self._control()
@@ -69,11 +105,9 @@ class nx857e:
 
 
     def configure_nx587e(self, options):
-        """
-        Add NX587E configuration options to the command queue
-        for execution. Typically called during NX587E instantiation 
-        """
-
+        # Add NX587E configuration options to the command queue
+        # execution. Typically called during NX587E instantiation 
+    
         try:
             self._command_q.put_nowait(options)
         except serial.SerialException as e:
@@ -82,34 +116,85 @@ class nx857e:
         time.sleep(0.25)
     
 
+    def _processEvent(self,raw_event):
+        # Determine if raw_event is a valid status message type by
+        # iterating the supported message types in NX_MESSAGE_TYPES
+        # and comparing it with the first two chars of raw_event id.
+        for key_nxMsgtypes in self._NX_MESSAGE_TYPES:
+            if raw_event[0:2] == key_nxMsgtypes:
+                # raw_event contains a supported status message type.
+                # Determine the device ID from raw_event. The ID can
+                # be 3 chars (e.g 001 for Zone Status Messages: ZN001)
+                # or 1 char (e.g 1 for Partition Status Messages PA1)                
+                #
+                # Begining from the 3rd (indexed from 0) character of
+                # raw_event, check if the char is numeric and expand
+                # the range until a non-numeric is found. id will now
+                # contain the required id.
+                id_start_char = 2
+                num_char= id_start_char + 1
+                while raw_event[2:num_char].isnumeric() == True:
+                        id = int(raw_event[2:num_char])
+                        num_char += 1
+                        # raw_event can contain a 3 digit or 1 digit
+                        # id so the position of non-id message
+                        # attributes is offset due to the length of 
+                        # the id in raw_event. id_start_char tracks 
+                        # the start position of non-id characters 
+                        id_start_char += 1
 
-    def _processEvent(self, raw_event):
-        if raw_event[0:2] == "ZN":
-            # get Zone ID (3 chars to int)
-            id = int(raw_event[2:5])
-            
-            # Construct a dictionary to represent the current state of the zone
-            NXZoneEventStream = {}
-            for i, v in enumerate(raw_event[5:13]):
-                NXZoneEventStream[ZONE_ELEMENTS[i]] = v.isupper()
-            
-            # Iterate through the NXZoneEventStream items (current message)
-            # and compare each item value with that of previous message in
-            # zoneBank that maintains state.
-            for key, value in NXZoneEventStream.items():
-                if self.zoneBank[id].get(key) != value:
-                    self.zoneBank[id].set(key, value)
-                    event = {"event":"ZN",
-                                "id":id,
-                                "tag":key,
-                                "value":value,
-                                "time":self.zoneBank[id].get(str(key+'_time'))
-                            }
-                    self.callbackf(event)
+                # Construct a dictionary to represent the status
+                # characters contained in raw_event positioned after
+                # the id. UPPER CASE characters represent 'TRUE',
+                # lower case characters represent 'False'. 
+                # The character position in raw_event message 
+                # determins the underlying attribute/property and is 
+                # defined in NX_MESSAGE_TYPES.
+                NXMessage = {}
+                for i, v in enumerate(raw_event[id_start_char:len(raw_event)-1]):
+                    NXMessage[self._NX_MESSAGE_TYPES[key_nxMsgtypes][i]] = v.isupper()
+                
+                # The attribute characters of raw_event is now 
+                # represented in NXMessage (excluding message 
+                # type and id).
+                #
+                # Iterate through the current message represented in
+                # NXMessage items and compare each attribute with 
+                # that of previous attribute value stored in
+                # deviceBank list. 
+                # 
+                # NOTE: deviceBank list stores the previous state
+                # positioned by the sequential device id as the index.
+                # Therefore, ensure the id is within the NX_MAX_DEVICES
+                # value to avoid a out of range index error
+
+                if id <= self._NX_MAX_DEVICES[key_nxMsgtypes]:
+                    # id is within range
+                    for msg_key, msg_value in NXMessage.items():
+                        # Get the previous attribute value and compare
+                        # current value. If it doesn't match, an 'event'
+                        # has occurred, so update the state with the new
+                        # value
+                        if self.deviceBank[key_nxMsgtypes][id-1].get(msg_key) != msg_value:
+                            self.deviceBank[key_nxMsgtypes][id-1].set(msg_key, msg_value)
+
+                            # Construct an event dictionary to
+                            # represent the latest state
+                            event = {"event":key_nxMsgtypes,
+                                    "id":id,
+                                    "tag":msg_key,
+                                    "value":msg_value,
+                                    "time": self.deviceBank[key_nxMsgtypes][id-1].get(str(msg_key+'_time'))
+                                    }
+                            # Execute the callback function with the 
+                            # latest event state that changed.
+                            self.callbackf(event)
+                        else:
+                            # Message not supported
+                            pass
                 else:
+                    # Received a message with an ID > MAX devices, ignore message
                     pass
-                    #print("No update required")
-
 
     def _serial_writer(self,serial_conn,command_q):
         """
