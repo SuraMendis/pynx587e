@@ -238,7 +238,6 @@ class PanelInterface:
                 # Put the query into the _command_q
                 # which will be processed by the serial writer thread
                 try:
-                    print(query)
                     self._command_q.put_nowait(query)
                 except serial.SerialException as e:
                     print(e)
