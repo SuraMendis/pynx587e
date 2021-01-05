@@ -11,10 +11,8 @@ from pynx587e.serialreader import Serialreader
 from pynx587e.flexdevice import FlexDevice
 
 
-
-class nx857e:
+class PanelInterface:
     def __init__(self, port, max_zone,max_partitions, cb):
-
         # A Zone Status Message syntax is like: ZN002FttBaillb where:
         #  ZN = Zone Identifer
         #  002 = The Zone Number/ID
@@ -116,7 +114,7 @@ class nx857e:
         time.sleep(0.25)
     
 
-    def _processEvent(self,raw_event):
+    def _process_event(self,raw_event):
         # Determine if raw_event is a valid status message type by
         # iterating the supported message types in NX_MESSAGE_TYPES
         # and comparing it with the first two chars of raw_event id.
@@ -131,6 +129,7 @@ class nx857e:
                 # raw_event, check if the char is numeric and expand
                 # the range until a non-numeric is found. id will now
                 # contain the required id.
+
                 id_start_char = 2
                 num_char= id_start_char + 1
                 while raw_event[2:num_char].isnumeric() == True:
@@ -247,7 +246,7 @@ class nx857e:
                 pass
             else:
                 # process the raw event
-                self._processEvent(raw_event)
+                self._process_event(raw_event)
                 
 
     def _control(self):
