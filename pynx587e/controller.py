@@ -95,6 +95,8 @@ class PanelInterface:
             i = 0
             while i < max_item:
                 self.deviceBank[device].append(FlexDevice(self._NX_MESSAGE_TYPES[device]))
+                self._direct_query(device,i+1)
+                #time.sleep(0.05)
                 i = i+1
 
         # NOTE: Thread creation happens in _control
@@ -174,7 +176,17 @@ class PanelInterface:
                         # current value. If it doesn't match, an 'event'
                         # has occurred, so update the state with the new
                         # value
-                        if self.deviceBank[key_nxMsgtypes][id-1].get(msg_key) != msg_value:
+                        previous_attribute_value = self.deviceBank[
+                            key_nxMsgtypes][id-1].get(msg_key)
+                        
+                        skip_callback = False
+                        if previous_attribute_value != msg_value:
+                            if previous_attribute_value == -1:
+                                skip_callback=True
+                            else: 
+                                pass
+                            
+                            # Update value    
                             self.deviceBank[key_nxMsgtypes][id-1].set(msg_key, msg_value)
 
                             # Construct an event dictionary to
@@ -187,7 +199,8 @@ class PanelInterface:
                                     }
                             # Execute the callback function with the 
                             # latest event state that changed.
-                            self.callbackf(event)
+                            if skip_callback == False:
+                                self.callbackf(event)
                         else:
                             # Message not supported
                             pass
@@ -195,12 +208,80 @@ class PanelInterface:
                     # Received a message with an ID > MAX devices, ignore message
                     pass
 
+    def getStatus(self,query_type,id,element):
+        '''
+        getStatus returns the individual status and time
+        for a defined element as defined by _NX_MESSAGE_TYPES
+        as a List.
+
+        For example: getStatus('ZN',1,fault) could return
+        [true,2021-01-05 16:00:29.689725] which means:
+          - status of Zone 1's fault (tripped) is TRUE;
+          - and the associated event time.
+
+        getStatus returns [-1,-1] for invalid requests
+        '''
+
+        # Check if the query_type is valid as defined in
+        # _NX_MESSAGE_TYPES
+        invalid_status = ['-1','-1']
+
+        if query_type in self._NX_MESSAGE_TYPES:
+            # Check if the id is valid as defined in _NX_MAX_DEVICES
+            if id <= self._NX_MAX_DEVICES[query_type]:
+                cached_attribute=self.deviceBank[query_type][id-1].get(element)
+                cached_attribute_time=self.deviceBank[query_type][id-1].get(element+'_time')
+                status = [cached_attribute,cached_attribute_time]
+            else:
+                status = invalid_status
+        else:
+            status = invalid_status
+            
+        return status
+
+
+
+
+    def _direct_query(self,query_type,id):
+        '''
+        Directly query the Zone or Partition status from the NX587E.
+        Results are automatically processed by _event_process. 
+
+        _direct_query is for internal use by this module. Users of 
+        pyNX587E should use getStatus rather than _direct_query to 
+        retrieve the current partition or zone state.
+
+        Note: _event_process inhibits its callback function for the 
+        first status response it processes. This allows _direct_query
+        to be used internally to establish an accurate state during 
+        start-up.
+        '''
+
+        # Check if the query_type is valid as defined in
+        # _NX_MESSAGE_TYPES
+        if query_type in self._NX_MESSAGE_TYPES:
+            # Check if the id is valid as defined in _NX_MAX_DEVICES
+            if id <= self._NX_MAX_DEVICES[query_type]:
+                # Construct a query based on the NX587E Specification
+                # Q001 to Q192 is for Zone Queries (Zone 1-192)
+                # Q193 to Q200 is for Partition  Queries (1-9)
+                if query_type == "PA":
+                    query="Q"+str(192+id)
+                elif query_type=="ZN":
+                    query="Q"+str(id).zfill(3)
+                # Put the query into the _command_q
+                # which will be processed by the serial writer thread
+                try:
+                    self._command_q.put_nowait(query)
+                except serial.SerialException as e:
+                    print(e)
+
     def _serial_writer(self,serial_conn,command_q):
-        """
+        '''
         Consumer thread that reads the command_q queue and writes
         commands to the serial device. Designed to run as a daemonic
         thread
-        """
+        '''
         
         while True:
             try:
@@ -215,11 +296,11 @@ class PanelInterface:
                 serial_conn.write(b)
 
     def _serial_reader(self,serial_conn,raw_event_q):
-        """
+        '''
         Producer thread that reads lines from the serial device and
         adds these to the raw_event_q queue.  Designed to run as a 
         daemonic thread
-        """
+        '''
         # seralreader is wrapper for pyserial that provides a 
         # higher-performance readline function
         # DO NOT use read_until or readline from the pyserial 
