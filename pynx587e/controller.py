@@ -195,6 +195,27 @@ class PanelInterface:
                     # Received a message with an ID > MAX devices, ignore message
                     pass
 
+    def _direct_query(self,query_type,id):
+        '''Construct a Zone or Partition Status Query and place it in the command queue'''
+        # Check if the query_type is valid as defined in
+        # _NX_MESSAGE_TYPES
+        if query_type in self._NX_MESSAGE_TYPES:
+            # Check if the id is valid as defined in _NX_MAX_DEVICES
+            if id <= self._NX_MAX_DEVICES[query_type]:
+                # Construct a query based on the NX587E Specification
+                # Q001 to Q192 is for Zone Queries (Zone 1-192)
+                # Q193 to Q200 is for Partition  Queries (1-9)
+                if query_type == "PA":
+                    query="Q"+str(192+id)
+                elif query_type=="ZN":
+                    query="Q"+str(id).zfill(3)
+                # Put the query into the _command_q
+                # which will be processed by the serial writer thread
+                try:
+                    self._command_q.put_nowait(query)
+                except serial.SerialException as e:
+                    print(e)
+
     def _serial_writer(self,serial_conn,command_q):
         """
         Consumer thread that reads the command_q queue and writes
