@@ -8,8 +8,8 @@ class FlexDevice:
         # For element, also create a element_time key/value
         for item in fd_elements:
             item_time = item+'_time'
-            self._flexDeviceState[item] = 0
-            self._flexDeviceState[item_time] = 0
+            self._flexDeviceState[item] = -1
+            self._flexDeviceState[item_time] = -1
     
     def get(self,item):
         return self._flexDeviceState[item]
