@@ -208,6 +208,40 @@ class PanelInterface:
                     # Received a message with an ID > MAX devices, ignore message
                     pass
 
+    def getStatus(self,query_type,id,element):
+        '''
+        getStatus returns the individual status and time
+        for a defined element as defined by _NX_MESSAGE_TYPES
+        as a List.
+
+        For example: getStatus('ZN',1,fault) could return
+        [true,2021-01-05 16:00:29.689725] which means:
+          - status of Zone 1's fault (tripped) is TRUE;
+          - and the associated event time.
+
+        getStatus returns [-1,-1] for invalid requests
+        '''
+
+        # Check if the query_type is valid as defined in
+        # _NX_MESSAGE_TYPES
+        invalid_status = ['-1','-1']
+
+        if query_type in self._NX_MESSAGE_TYPES:
+            # Check if the id is valid as defined in _NX_MAX_DEVICES
+            if id <= self._NX_MAX_DEVICES[query_type]:
+                cached_attribute=self.deviceBank[query_type][id-1].get(element)
+                cached_attribute_time=self.deviceBank[query_type][id-1].get(element+'_time')
+                status = [cached_attribute,cached_attribute_time]
+            else:
+                status = invalid_status
+        else:
+            status = invalid_status
+            
+        return status
+
+
+
+
     def _direct_query(self,query_type,id):
         '''
         Directly query the Zone or Partition status from the NX587E.
