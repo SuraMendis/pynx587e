@@ -10,9 +10,31 @@ import serial
 from pynx587e.serialreader import Serialreader
 from pynx587e.flexdevice import FlexDevice
 
+class PanelInterfaceError(Exception):
+    '''Basic Exception for errors raised with PanelInterface'''
 
+class KeyMapError(PanelInterfaceError):
+    ''' Keymap should be US or AUNZ '''
+    
 class PanelInterface:
-    def __init__(self, port, max_zone,max_partitions, cb):
+    ''' Connect and manage Interlogix, Caddx and Hills Reliance alarm
+    panels via the NX-587E serial module.
+    
+    :param port: An NX148E function command or user code
+    :type port: int
+    :param max_zone: Highest Zone number to track
+    :type max_zone: int
+    :param max_partitions: Highest Partition number to track
+    :type max_partitions: int
+    :param keymap: USA or AUNZ (Hills Reliance panels should use AUNZ)
+    :type max_partitions: string
+    :param cb: function in your application that gets called when a
+     Zone or Partition Event occurs.
+    :type cb: function
+
+    :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
+    '''
+    def __init__(self, port, max_zone,max_partitions, keymap,cb):
         # A Zone Status Message syntax is like: ZN002FttBaillb where:
         #  ZN = Zone Identifer
         #  002 = The Zone Number/ID
@@ -79,6 +101,13 @@ class PanelInterface:
         #       the NX587E to mitigate effect of power loss
         START_UP_OPTIONS='taliPZn'
 
+        # Set instance variable keymap or throw exception
+        # keymap is used by panel_command(...)
+        if (keymap != "USA" and keymap !="AUNZ"):
+            raise KeyMapError("keymap must be: USA or AUNZ")
+        else:
+            self._keymap = keymap
+
         # Disconnection flag
         self._run_flag = True
 
@@ -101,10 +130,10 @@ class PanelInterface:
 
         # NOTE: Thread creation happens in _control
         self._control()
-        self.configure_nx587e(START_UP_OPTIONS)
+        self._configure_nx587e(START_UP_OPTIONS)
 
 
-    def configure_nx587e(self, options):
+    def _configure_nx587e(self, options):
         # Add NX587E configuration options to the command queue
         # execution. Typically called during NX587E instantiation 
     
@@ -112,7 +141,7 @@ class PanelInterface:
             self._command_q.put_nowait(options)
         except serial.SerialException as e:
             print(e)
-        # FIXME: Give some time for the _serial_writer thread to process
+        # Give some time for the _serial_writer thread to process
         time.sleep(0.25)
     
 
@@ -274,26 +303,14 @@ class PanelInterface:
                 except serial.SerialException as e:
                     print(e)
 
-    def panel_command(self, in_command,keymap):
-        """Sends an alarm panel command or user code via the NX587E 
+    def panel_command(self, in_command):
+        ''''Sends an alarm panel command or user code via the NX587E 
         interface. 
 
         :param in_command: An NX148E function command or user code
         :type in_command: string
-        :param keymap: 1 is for non-AU/NZ panels, otherwise 2
-        :type keymap: int
 
         :raises serial.SerialException: If serial port error occurs
-
-        .. warning::
-           The NX587E presents as a NX148E (Non-AU/NZ keypad version)
-
-           Australian/NZ alarm panels (e.g. Hills Reliance) expects 
-           a NX148E (AU/NZ Version) and not the version presented by 
-           the NX587E.
-           
-           Consequently, the keymap parameter must be set to 2 for
-           AU/NZ installations; or 1 for non-AU/NZ installations.
 
         .. note::
            AU/NZ installations support the following commands
@@ -304,8 +321,16 @@ class PanelInterface:
            Non-AU/NZ installations support the following commands
            stay, chime, exit, bypass, cancel, fire, medical, hold_up,
            or a 4 or 6 digit user code.
-        """
-        if keymap == 2:
+        '''
+        # The NX587E presents as a NX148E (Non-AU/NZ keypad version)
+        #
+        # Australian/NZ alarm panels (e.g. Hills Reliance) expects 
+        # a NX148E (AU/NZ Version) and not the version presented by 
+        # the NX587E.
+        #   
+        # Consequently, the self.keymap parameter must be set to 2 for
+        # AU/NZ installations; or 1 for non-AU/NZ installations.
+        if self._keymap == "AUNZ":
             supported_commands = {
                 "partial":"K", # Sending K does a partial/stay arm
                 "chime":"C",
@@ -315,7 +340,6 @@ class PanelInterface:
                 "fire":"F",
                 "medical":"M",
                 "hold_up":"H",}
-
         else:
             # The NX587E default supported keymap
             supported_commands = {
