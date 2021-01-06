@@ -240,8 +240,6 @@ class PanelInterface:
         return status
 
 
-
-
     def _direct_query(self,query_type,id):
         '''
         Directly query the Zone or Partition status from the NX587E.
@@ -275,6 +273,76 @@ class PanelInterface:
                     self._command_q.put_nowait(query)
                 except serial.SerialException as e:
                     print(e)
+
+    def panel_command(self, in_command,keymap):
+        """Sends an alarm panel command or user code via the NX587E 
+        interface. 
+
+        :param in_command: An NX148E function command or user code
+        :type in_command: string
+        :param keymap: 1 is for non-AU/NZ panels, otherwise 2
+        :type keymap: int
+
+        :raises serial.SerialException: If serial port error occurs
+
+        .. warning::
+           The NX587E presents as a NX148E (Non-AU/NZ keypad version)
+
+           Australian/NZ alarm panels (e.g. Hills Reliance) expects 
+           a NX148E (AU/NZ Version) and not the version presented by 
+           the NX587E.
+           
+           Consequently, the keymap parameter must be set to 2 for
+           AU/NZ installations; or 1 for non-AU/NZ installations.
+
+        .. note::
+           AU/NZ installations support the following commands
+           partial, chime, exit, bypass, on, fire, medical, hold_up,
+           or a 4 or 6 digit user code
+
+        .. note::
+           Non-AU/NZ installations support the following commands
+           stay, chime, exit, bypass, cancel, fire, medical, hold_up,
+           or a 4 or 6 digit user code.
+        """
+        if keymap == 2:
+            supported_commands = {
+                "partial":"K", # Sending K does a partial/stay arm
+                "chime":"C",
+                "exit":"E",
+                "bypass":"B",
+                "on":"S", # Sending 'S' quick-arm 
+                "fire":"F",
+                "medical":"M",
+                "hold_up":"H",}
+
+        else:
+            # The NX587E default supported keymap
+            supported_commands = {
+                "stay":"S",
+                "chime":"C",
+                "exit":"E",
+                "bypass":"B",
+                "cancel":"K",
+                "fire":"F",
+                "medical":"M",
+                "hold_up":"H",}
+            
+       
+        # A 4 or 6 digit code is also a valid input
+        # This typically arms/disarms the panel
+        if in_command.isnumeric() and (
+            len(in_command) == 4 or len(in_command == 6)):
+            command = in_command
+        elif in_command in supported_commands:
+            command = supported_commands[in_command]
+        
+        # Send the command to the _command_q Queue
+        if command != "":
+            try:
+                 self._command_q.put_nowait(command)
+            except serial.SerialException as e:
+                print(e)
 
     def _serial_writer(self,serial_conn,command_q):
         '''
