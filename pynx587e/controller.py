@@ -390,8 +390,6 @@ class PanelInterface:
         :param command_q: Queue to read commands from
         :type command_q: Queue
 
-        :raises queue.Empty if queue is empty and tries again
-
         .. note:: Designed to run as a daemonic thread
         '''
         while True:
@@ -409,7 +407,7 @@ class PanelInterface:
     def _serial_reader(self,serial_conn,raw_event_q):
         ''' Reads message from serial port and writes it to a Queue
         for further processing.
-        
+
         :param serial_conn: An instance of serial.Serial from 
         pySerial.
         :type serial_conn: serial.Serial
