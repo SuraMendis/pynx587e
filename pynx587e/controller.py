@@ -146,21 +146,29 @@ class PanelInterface:
     
 
     def _process_event(self,raw_event):
+        ''' Decode, track and report changes to transition
+        messages (ZN and PA) and their individual elements.
+
+        .. note: If the existing element value is -1 then this
+        is the first update to the element (typically during 
+        instantiation of this module) and the callback function 
+        is skipped.
+
+        :param raw_event: A Zone or Partition Status Message
+        :type raw_event: string
+        '''
         # Determine if raw_event is a valid status message type by
-        # iterating the supported message types in NX_MESSAGE_TYPES
-        # and comparing it with the first two chars of raw_event id.
+        # comparing it with in NX_MESSAGE_TYPES.
         for key_nxMsgtypes in self._NX_MESSAGE_TYPES:
             if raw_event[0:2] == key_nxMsgtypes:
-                # raw_event contains a supported status message type.
-                # Determine the device ID from raw_event. The ID can
-                # be 3 chars (e.g 001 for Zone Status Messages: ZN001)
-                # or 1 char (e.g 1 for Partition Status Messages PA1)                
+                # Determine the device ID from raw_event. ID can be
+                # 3 chars (001 for Zone Status Messages: ZN001) or 1
+                # char (1 for Partition Status Messages PA1)                
                 #
                 # Begining from the 3rd (indexed from 0) character of
                 # raw_event, check if the char is numeric and expand
                 # the range until a non-numeric is found. id will now
                 # contain the required id.
-
                 id_start_char = 2
                 num_char= id_start_char + 1
                 while raw_event[2:num_char].isnumeric() == True:
@@ -178,7 +186,7 @@ class PanelInterface:
                 # the id. UPPER CASE characters represent 'TRUE',
                 # lower case characters represent 'False'. 
                 # The character position in raw_event message 
-                # determins the underlying attribute/property and is 
+                # determins the underlying attribute/property as
                 # defined in NX_MESSAGE_TYPES.
                 NXMessage = {}
                 for i, v in enumerate(raw_event[id_start_char:len(raw_event)-1]):
@@ -238,19 +246,21 @@ class PanelInterface:
                     pass
 
     def getStatus(self,query_type,id,element):
+        ''' Returns the individual status and time
+        for a defined element as as list.
+
+        :param query_type: Query type as defined in _NX_MESSAGE_TYPES
+        :type query_type: string
+        
+        .. note:: Supported elements are defined in _NX_MESSAGE_TYPES
+           For example: getStatus('ZN',1,fault) could return
+           [true,2021-01-05 16:00:29.689725] which means:
+            - status of Zone 1's fault (tripped) is TRUE;
+            - and the associated event time.
+
+        :return: List [-1,-1] for invalid requests
+        :rtype: List
         '''
-        getStatus returns the individual status and time
-        for a defined element as defined by _NX_MESSAGE_TYPES
-        as a List.
-
-        For example: getStatus('ZN',1,fault) could return
-        [true,2021-01-05 16:00:29.689725] which means:
-          - status of Zone 1's fault (tripped) is TRUE;
-          - and the associated event time.
-
-        getStatus returns [-1,-1] for invalid requests
-        '''
-
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
         invalid_status = ['-1','-1']
@@ -270,20 +280,22 @@ class PanelInterface:
 
 
     def _direct_query(self,query_type,id):
-        '''
-        Directly query the Zone or Partition status from the NX587E.
-        Results are automatically processed by _event_process. 
+        '''Directly query the Zone or Partition status from the
+        NX587E. Results are processed by _event_process. 
 
-        _direct_query is for internal use by this module. Users of 
-        pyNX587E should use getStatus rather than _direct_query to 
-        retrieve the current partition or zone state.
+        :param query_type: Query type as defined in _MX_MESSAGE_TYPES
+        :type query_type: string
 
-        Note: _event_process inhibits its callback function for the 
+        :raises serial.SerialException: If serial port error occurs
+
+        .. note:: _direct_query is for internal use module use. Users of 
+        pyNX587E should use getStatus rather than _direct_query.
+
+        .. note:: _event_process inhibits its callback function for the 
         first status response it processes. This allows _direct_query
         to be used internally to establish an accurate state during 
         start-up.
         '''
-
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
         if query_type in self._NX_MESSAGE_TYPES:
@@ -369,12 +381,17 @@ class PanelInterface:
                 print(e)
 
     def _serial_writer(self,serial_conn,command_q):
-        '''
-        Consumer thread that reads the command_q queue and writes
-        commands to the serial device. Designed to run as a daemonic
-        thread
-        '''
+        ''' Reads command from queue and writes to the serial port.
         
+        :param serial_conn: An instance of serial.Serial from 
+        pySerial.
+        :type serial_conn: serial.Serial
+
+        :param command_q: Queue to read commands from
+        :type command_q: Queue
+
+        .. note:: Designed to run as a daemonic thread
+        '''
         while True:
             try:
                 # ensure a blocking mechanism is used to reduce CPU
@@ -388,10 +405,17 @@ class PanelInterface:
                 serial_conn.write(b)
 
     def _serial_reader(self,serial_conn,raw_event_q):
-        '''
-        Producer thread that reads lines from the serial device and
-        adds these to the raw_event_q queue.  Designed to run as a 
-        daemonic thread
+        ''' Reads message from serial port and writes it to a Queue
+        for further processing.
+
+        :param serial_conn: An instance of serial.Serial from 
+        pySerial.
+        :type serial_conn: serial.Serial
+
+        :param raw_event_q: Queue to write serial message to
+        :type command_q: Queue
+
+        .. note:: Designed to run as a daemonic thread
         '''
         # seralreader is wrapper for pyserial that provides a 
         # higher-performance readline function
@@ -423,6 +447,9 @@ class PanelInterface:
                 
 
     def _control(self):
+        ''' Establishes a connection to the NX587E and creates
+        consumer and producer threads to handle messages
+        '''
         try:
             serial_conn = serial.Serial(port=self._port)
         except serial.SerialException as e:
@@ -460,4 +487,7 @@ class PanelInterface:
    
 
     def stop(self):
+        '''
+        Stop instance by setting _run_flag to False
+        '''
         self._run_flag = False
