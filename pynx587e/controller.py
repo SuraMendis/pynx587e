@@ -146,21 +146,29 @@ class PanelInterface:
     
 
     def _process_event(self,raw_event):
+        ''' Decode, track and report changes to transition
+        messages (ZN and PA) and their individual elements.
+
+        .. note: If the existing element value is -1 then this
+        is the first update to the element (typically during 
+        instantiation of this module) and the callback function 
+        is skipped.
+
+        :param raw_event: A Zone or Partition Status Message
+        :type raw_event: string
+        '''
         # Determine if raw_event is a valid status message type by
-        # iterating the supported message types in NX_MESSAGE_TYPES
-        # and comparing it with the first two chars of raw_event id.
+        # comparing it with in NX_MESSAGE_TYPES.
         for key_nxMsgtypes in self._NX_MESSAGE_TYPES:
             if raw_event[0:2] == key_nxMsgtypes:
-                # raw_event contains a supported status message type.
-                # Determine the device ID from raw_event. The ID can
-                # be 3 chars (e.g 001 for Zone Status Messages: ZN001)
-                # or 1 char (e.g 1 for Partition Status Messages PA1)                
+                # Determine the device ID from raw_event. ID can be
+                # 3 chars (001 for Zone Status Messages: ZN001) or 1
+                # char (1 for Partition Status Messages PA1)                
                 #
                 # Begining from the 3rd (indexed from 0) character of
                 # raw_event, check if the char is numeric and expand
                 # the range until a non-numeric is found. id will now
                 # contain the required id.
-
                 id_start_char = 2
                 num_char= id_start_char + 1
                 while raw_event[2:num_char].isnumeric() == True:
@@ -178,7 +186,7 @@ class PanelInterface:
                 # the id. UPPER CASE characters represent 'TRUE',
                 # lower case characters represent 'False'. 
                 # The character position in raw_event message 
-                # determins the underlying attribute/property and is 
+                # determins the underlying attribute/property as
                 # defined in NX_MESSAGE_TYPES.
                 NXMessage = {}
                 for i, v in enumerate(raw_event[id_start_char:len(raw_event)-1]):
