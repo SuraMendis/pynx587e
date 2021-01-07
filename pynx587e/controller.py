@@ -261,7 +261,6 @@ class PanelInterface:
         :return: List [-1,-1] for invalid requests
         :rtype: List
         '''
-
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
         invalid_status = ['-1','-1']
@@ -281,15 +280,18 @@ class PanelInterface:
 
 
     def _direct_query(self,query_type,id):
-        '''
-        Directly query the Zone or Partition status from the NX587E.
-        Results are automatically processed by _event_process. 
+        '''Directly query the Zone or Partition status from the
+        NX587E. Results are processed by _event_process. 
 
-        _direct_query is for internal use by this module. Users of 
-        pyNX587E should use getStatus rather than _direct_query to 
-        retrieve the current partition or zone state.
+        :param query_type: Query type as defined in _MX_MESSAGE_TYPES
+        :type query_type: string
 
-        Note: _event_process inhibits its callback function for the 
+        :raises serial.SerialException: If serial port error occurs
+
+        .. note:: _direct_query is for internal use module use. Users of 
+        pyNX587E should use getStatus rather than _direct_query.
+
+        .. note:: _event_process inhibits its callback function for the 
         first status response it processes. This allows _direct_query
         to be used internally to establish an accurate state during 
         start-up.
