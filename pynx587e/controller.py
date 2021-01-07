@@ -487,4 +487,7 @@ class PanelInterface:
    
 
     def stop(self):
+        '''
+        Stop instance by setting _run_flag to False
+        '''
         self._run_flag = False
