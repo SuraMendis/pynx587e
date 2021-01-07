@@ -389,7 +389,7 @@ class PanelInterface:
 
         :param command_q: Queue to read commands from
         :type command_q: Queue
-        
+
         :raises queue.Empty if queue is empty and tries again
 
         .. note:: Designed to run as a daemonic thread
@@ -407,10 +407,17 @@ class PanelInterface:
                 serial_conn.write(b)
 
     def _serial_reader(self,serial_conn,raw_event_q):
-        '''
-        Producer thread that reads lines from the serial device and
-        adds these to the raw_event_q queue.  Designed to run as a 
-        daemonic thread
+        ''' Reads message from serial port and writes it to a Queue
+        for further processing.
+        
+        :param serial_conn: An instance of serial.Serial from 
+        pySerial.
+        :type serial_conn: serial.Serial
+
+        :param raw_event_q: Queue to write serial message to
+        :type command_q: Queue
+
+        .. note:: Designed to run as a daemonic thread
         '''
         # seralreader is wrapper for pyserial that provides a 
         # higher-performance readline function
