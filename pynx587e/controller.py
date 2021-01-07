@@ -114,7 +114,6 @@ class PanelInterface:
         # Queues for thread communication
         self._command_q = queue.Queue(maxsize=0)
         self._raw_event_q = queue.Queue(maxsize=0)
-        self._consumer_q = queue.Queue(maxsize=0)
         
         # Create deviceBank from NX_MAX_DEVICES definition to represent
         # the defined number of devices (e.g. Zones and Partitions)
@@ -434,7 +433,7 @@ class PanelInterface:
                 if (raw_line):
                     raw_event_q.put(raw_line)
 
-    def _event_producer(self,serial_conn, raw_event_q, consumer_q):
+    def _event_producer(self,serial_conn, raw_event_q):
         while self._run_flag:
             time.sleep(0.01)
             try:
@@ -476,7 +475,6 @@ class PanelInterface:
                 target=self._event_producer,
                 args=(serial_conn,
                       self._raw_event_q,
-                      self._consumer_q,
                      ),
                 )
 
