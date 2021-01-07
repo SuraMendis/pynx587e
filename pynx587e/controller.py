@@ -296,7 +296,6 @@ class PanelInterface:
         to be used internally to establish an accurate state during 
         start-up.
         '''
-
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
         if query_type in self._NX_MESSAGE_TYPES:
@@ -382,12 +381,19 @@ class PanelInterface:
                 print(e)
 
     def _serial_writer(self,serial_conn,command_q):
-        '''
-        Consumer thread that reads the command_q queue and writes
-        commands to the serial device. Designed to run as a daemonic
-        thread
-        '''
+        ''' Reads command from queue and writes to the serial port.
         
+        :param serial_conn: An instance of serial.Serial from 
+        pySerial.
+        :type serial_conn: serial.Serial
+
+        :param command_q: Queue to read commands from
+        :type command_q: Queue
+        
+        :raises queue.Empty if queue is empty and tries again
+
+        .. note:: Designed to run as a daemonic thread
+        '''
         while True:
             try:
                 # ensure a blocking mechanism is used to reduce CPU
