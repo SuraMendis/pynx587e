@@ -434,6 +434,15 @@ class PanelInterface:
                     raw_event_q.put(raw_line)
 
     def _event_producer(self,serial_conn, raw_event_q):
+        ''' Reads message from raw_event_q and sends message for decoding.
+
+        :param serial_conn: An instance of serial.Serial from 
+        pySerial.
+        :type serial_conn: serial.Serial
+
+        :param raw_event_q: Queue to read messages from.
+        :type command_q: Queue
+        '''
         while self._run_flag:
             time.sleep(0.01)
             try:
