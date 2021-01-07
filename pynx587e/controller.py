@@ -246,17 +246,20 @@ class PanelInterface:
                     pass
 
     def getStatus(self,query_type,id,element):
-        '''
-        getStatus returns the individual status and time
-        for a defined element as defined by _NX_MESSAGE_TYPES
-        as a List.
+        ''' Returns the individual status and time
+        for a defined element as as list.
 
-        For example: getStatus('ZN',1,fault) could return
-        [true,2021-01-05 16:00:29.689725] which means:
-          - status of Zone 1's fault (tripped) is TRUE;
-          - and the associated event time.
+        :param query_type: Query type as defined in _NX_MESSAGE_TYPES
+        :type query_type: string
+        
+        .. note:: Supported elements are defined in _NX_MESSAGE_TYPES
+           For example: getStatus('ZN',1,fault) could return
+           [true,2021-01-05 16:00:29.689725] which means:
+            - status of Zone 1's fault (tripped) is TRUE;
+            - and the associated event time.
 
-        getStatus returns [-1,-1] for invalid requests
+        :return: List [-1,-1] for invalid requests
+        :rtype: List
         '''
 
         # Check if the query_type is valid as defined in
