@@ -447,6 +447,9 @@ class PanelInterface:
                 
 
     def _control(self):
+        ''' Establishes a connection to the NX587E and creates
+        consumer and producer threads to handle messages
+        '''
         try:
             serial_conn = serial.Serial(port=self._port)
         except serial.SerialException as e:
