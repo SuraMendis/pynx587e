@@ -99,7 +99,7 @@ class PanelInterface:
         # alarm panel.
         # TODO: START_UP_OPTIONS should be periodically sent to
         #       the NX587E to mitigate effect of power loss
-        START_UP_OPTIONS='taliPZn'
+        self._setup_options='taliPZn'
 
         # Set instance variable keymap or throw exception
         # keymap is used by panel_command(...)
@@ -129,20 +129,10 @@ class PanelInterface:
 
         # NOTE: Thread creation happens in _control
         self._control()
-        self._configure_nx587e(START_UP_OPTIONS)
-
-
-    def _configure_nx587e(self, options):
-        # Add NX587E configuration options to the command queue
-        # execution. Typically called during NX587E instantiation 
-    
-        try:
-            self._command_q.put_nowait(options)
-        except serial.SerialException as e:
-            print(e)
+        self.panel_command("nx587_setup")\
         # Give some time for the _serial_writer thread to process
+        # above command
         time.sleep(0.25)
-    
 
     def _process_event(self,raw_event):
         ''' Decode, track and report changes to transition
@@ -350,7 +340,8 @@ class PanelInterface:
                 "on":"S", # Sending 'S' quick-arm 
                 "fire":"F",
                 "medical":"M",
-                "hold_up":"H",}
+                "hold_up":"H",
+                "nx587_setup":self._setup_options,}
         else:
             # The NX587E default supported keymap
             supported_commands = {
@@ -361,9 +352,9 @@ class PanelInterface:
                 "cancel":"K",
                 "fire":"F",
                 "medical":"M",
-                "hold_up":"H",}
-            
-       
+                "hold_up":"H",
+                "nx587_setup":self._setup_options,}
+
         # A 4 or 6 digit code is also a valid input
         # This typically arms/disarms the panel
         if in_command.isnumeric() and (
