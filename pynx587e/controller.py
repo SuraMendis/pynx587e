@@ -6,9 +6,10 @@ from threading import Thread
 # Related third party imports.
 import serial
 
-# Local application imports
-from pynx587e.serialreader import Serialreader
-from pynx587e.flexdevice import FlexDevice
+# Application imports
+import model
+import serialreader
+import flexdevice
 
 class PanelInterfaceError(Exception):
     '''Basic Exception for errors raised with PanelInterface'''
@@ -35,74 +36,22 @@ class PanelInterface:
     :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
     '''
     def __init__(self, port, max_zone,max_partitions, keymap,cb):
-        # A Zone Status Message syntax is like: ZN002FttBaillb where:
-        #  ZN = Zone Identifer
-        #  002 = The Zone Number/ID
-        #  FttBaillb = each character relates to the definition
-        #  (upper case true; else false)
-        #  in the _ZONE_ELEMENTS list below (order is important)
-        self._ZONE_ELEMENTS = [
-            'fault',
-            'tamper',
-            'trouble',
-            'bypass',
-            'alarmMemory',
-            'inhibit',
-            'lowBattery',
-            'lost',
-            'memoryBypass',
-        ]
-
-        # A Partition Status Message syntax is like: PA1RasCeEps where:
-        #  PN = Partition Identifer
-        #  1 = The Partition Number/ID
-        #  RasCeEps = each character relates to the definition 
-        #  (upper case true; else false) in the _ZONE_ELEMENTS list
-        #  below (order is important)
-        self._PARTITION_ELEMENTS = [
-            'ready',
-            'armed',
-            'stay',
-            'chime',
-            'entryDelay',
-            'exitPeriod',
-            'previousAlarm',
-            'siren'
-        ]
-
-        # _NX_MESSAGE_TYPES is a dictionary that defines supported
-        # message types. The key is the message type and the value
-        # is the previously defined elements (e.g _PARTITION_ELEMENTS)
-        self._NX_MESSAGE_TYPES={
-            "ZN":self._ZONE_ELEMENTS,
-            "PA":self._PARTITION_ELEMENTS
-        }   
-
-        # Define the number of devices in the alarm system
-        # e.g "ZN":48 means the highest Zone number is 48
+        # Define the highest addressable ZN/PN in the alarm system
         self._NX_MAX_DEVICES={
             "ZN":max_zone,
             "PA":max_partitions,
         }
 
-        # Serial port the NX587E is attached to
-        # Windows e.g: COM1
-        # Linux e.g /dev/ttyUSB0
+        # OS specific serial port the NX587E is attached to
+        # COMX for Windows; /dev/ttyUSB0 style for Linux
         self._port = port
 
         # The callback function called when a partition or zone
-        # stauts changes
+        # status changes
         self.callbackf = cb
 
-        # Configuration string for NX-587E
-        # This value is lost if the NX-587E loses power from the
-        # alarm panel.
-        # TODO: START_UP_OPTIONS should be periodically sent to
-        #       the NX587E to mitigate effect of power loss
-        START_UP_OPTIONS='taliPZn'
-
         # Set instance variable keymap or throw exception
-        # keymap is used by panel_command(...)
+        # keymap is used by send(...)
         if (keymap != "USA" and keymap !="AUNZ"):
             raise KeyMapError("keymap must be: USA or AUNZ")
         else:
@@ -122,27 +71,17 @@ class PanelInterface:
             self.deviceBank[device] = []
             i = 0
             while i < max_item:
-                self.deviceBank[device].append(FlexDevice(self._NX_MESSAGE_TYPES[device]))
+                self.deviceBank[device].append(flexdevice.FlexDevice(model._NX_MESSAGE_TYPES[device]))
                 self._direct_query(device,i+1)
                 #time.sleep(0.05)
                 i = i+1
 
         # NOTE: Thread creation happens in _control
         self._control()
-        self._configure_nx587e(START_UP_OPTIONS)
-
-
-    def _configure_nx587e(self, options):
-        # Add NX587E configuration options to the command queue
-        # execution. Typically called during NX587E instantiation 
-    
-        try:
-            self._command_q.put_nowait(options)
-        except serial.SerialException as e:
-            print(e)
+        self.send("nx587_setup")
         # Give some time for the _serial_writer thread to process
+        # above command
         time.sleep(0.25)
-    
 
     def _process_event(self,raw_event):
         ''' Decode, track and report changes to transition
@@ -158,7 +97,7 @@ class PanelInterface:
         '''
         # Determine if raw_event is a valid status message type by
         # comparing it with in NX_MESSAGE_TYPES.
-        for key_nxMsgtypes in self._NX_MESSAGE_TYPES:
+        for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
             if raw_event[0:2] == key_nxMsgtypes:
                 # Determine the device ID from raw_event. ID can be
                 # 3 chars (001 for Zone Status Messages: ZN001) or 1
@@ -189,7 +128,7 @@ class PanelInterface:
                 # defined in NX_MESSAGE_TYPES.
                 NXMessage = {}
                 for i, v in enumerate(raw_event[id_start_char:len(raw_event)-1]):
-                    NXMessage[self._NX_MESSAGE_TYPES[key_nxMsgtypes][i]] = v.isupper()
+                    NXMessage[model._NX_MESSAGE_TYPES[key_nxMsgtypes][i]] = v.isupper()
                 
                 # The attribute characters of raw_event is now 
                 # represented in NXMessage (excluding message 
@@ -264,7 +203,7 @@ class PanelInterface:
         # _NX_MESSAGE_TYPES
         invalid_status = ['-1','-1']
 
-        if query_type in self._NX_MESSAGE_TYPES:
+        if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
             if id <= self._NX_MAX_DEVICES[query_type]:
                 cached_attribute=self.deviceBank[query_type][id-1].get(element)
@@ -297,7 +236,7 @@ class PanelInterface:
         '''
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
-        if query_type in self._NX_MESSAGE_TYPES:
+        if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
             if id <= self._NX_MAX_DEVICES[query_type]:
                 # Construct a query based on the NX587E Specification
@@ -313,8 +252,10 @@ class PanelInterface:
                     self._command_q.put_nowait(query)
                 except serial.SerialException as e:
                     print(e)
+                    self.stop()
+    
 
-    def panel_command(self, in_command):
+    def send(self, in_command):
         ''''Sends an alarm panel command or user code via the NX587E 
         interface. 
 
@@ -341,43 +282,30 @@ class PanelInterface:
         #   
         # Consequently, the self.keymap parameter must be set to 2 for
         # AU/NZ installations; or 1 for non-AU/NZ installations.
-        if self._keymap == "AUNZ":
-            supported_commands = {
-                "partial":"K", # Sending K does a partial/stay arm
-                "chime":"C",
-                "exit":"E",
-                "bypass":"B",
-                "on":"S", # Sending 'S' quick-arm 
-                "fire":"F",
-                "medical":"M",
-                "hold_up":"H",}
-        else:
-            # The NX587E default supported keymap
-            supported_commands = {
-                "stay":"S",
-                "chime":"C",
-                "exit":"E",
-                "bypass":"B",
-                "cancel":"K",
-                "fire":"F",
-                "medical":"M",
-                "hold_up":"H",}
-            
-       
+
+        # Set supported_commands
+        if self._keymap in model._supported_keymaps:
+            supported_commands = model._supported_keymaps[self._keymap]
         # A 4 or 6 digit code is also a valid input
         # This typically arms/disarms the panel
         if in_command.isnumeric() and (
             len(in_command) == 4 or len(in_command == 6)):
             command = in_command
+        # or check if it is a function command in the keymap
         elif in_command in supported_commands:
             command = supported_commands[in_command]
-        
+        # or check if it is the nd587_setup command
+        elif in_command == "nx587_setup":
+            command = model._setup_options
+
         # Send the command to the _command_q Queue
         if command != "":
             try:
                  self._command_q.put_nowait(command)
             except serial.SerialException as e:
                 print(e)
+                self.stop()
+
 
     def _serial_writer(self,serial_conn,command_q):
         ''' Reads command from queue and writes to the serial port.
@@ -391,7 +319,8 @@ class PanelInterface:
 
         .. note:: Designed to run as a daemonic thread
         '''
-        while True:
+        #while True:
+        while self._run_flag == True:
             try:
                 # ensure a blocking mechanism is used to reduce CPU
                 # usage i.e do not use get_no_wait()
@@ -419,9 +348,10 @@ class PanelInterface:
         # seralreader is wrapper for pyserial that provides a 
         # higher-performance readline function
         # DO NOT use read_until or readline from the pyserial 
-        serial_reader = Serialreader(serial_conn)
+        serial_reader = serialreader.Serialreader(serial_conn)
 
-        while True:
+        #while True:
+        while self._run_flag == True:
             # NX587E outputs an event starting with a line feed and 
             # terminating with a charater break
             try:
@@ -429,6 +359,7 @@ class PanelInterface:
             except serial.SerialException:
                 pass
                 # manage a hot-unplug here
+                self.stop()
             else:
                 if (raw_line):
                     raw_event_q.put(raw_line)
@@ -443,7 +374,7 @@ class PanelInterface:
         :param raw_event_q: Queue to read messages from.
         :type command_q: Queue
         '''
-        while self._run_flag:
+        while self._run_flag == True:
             time.sleep(0.01)
             try:
                 raw_event = raw_event_q.get_nowait()
@@ -462,6 +393,7 @@ class PanelInterface:
             serial_conn = serial.Serial(port=self._port)
         except serial.SerialException as e:
             print(e)
+            self.stop()
         else:
             # Threads
             serial_writer_thread = Thread(
