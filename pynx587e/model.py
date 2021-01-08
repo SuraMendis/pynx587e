@@ -68,3 +68,6 @@ _supported_keymaps = {
     "AUNZ":_keymap_au_nz,
     "USA":_keymap_usa
 }
+
+# Configuration string for NX-587E, used on start up
+_setup_options='taliPZn'

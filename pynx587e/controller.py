@@ -50,9 +50,6 @@ class PanelInterface:
         # status changes
         self.callbackf = cb
 
-        # Configuration string for NX-587E, used on start up
-        self._setup_options='taliPZn'
-
         # Set instance variable keymap or throw exception
         # keymap is used by send(...)
         if (keymap != "USA" and keymap !="AUNZ"):
@@ -299,7 +296,7 @@ class PanelInterface:
             command = supported_commands[in_command]
         # or check if it is the nd587_setup command
         elif in_command == "nx587_setup":
-            command = self._setup_options
+            command = model._setup_options
 
         # Send the command to the _command_q Queue
         if command != "":
