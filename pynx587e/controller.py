@@ -37,13 +37,13 @@ class PanelInterface:
     '''
     def __init__(self, port, max_zone,max_partitions, keymap,cb):
         # Define the highest addressable ZN/PN in the alarm system
-        # e.g "ZN":48 means the highest Zone number is 48
         self._NX_MAX_DEVICES={
             "ZN":max_zone,
             "PA":max_partitions,
         }
 
-        # e.g: COM1 or /dev/ttyUSB that NX587E is attached to
+        # OS specific serial port the NX587E is attached to
+        # COMX for Windows; /dev/ttyUSB0 style for Linux
         self._port = port
 
         # The callback function called when a partition or zone
