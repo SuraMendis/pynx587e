@@ -16,6 +16,9 @@ class PanelInterfaceError(Exception):
 
 class KeyMapError(PanelInterfaceError):
     ''' Keymap should be US or AUNZ '''
+
+class GetStatusError(PanelInterfaceError):
+    ''' Invalid query or device IDF '''
     
 class PanelInterface:
     ''' Connect and manage Interlogix, Caddx and Hills Reliance alarm
@@ -196,13 +199,11 @@ class PanelInterface:
             - status of Zone 1's fault (tripped) is TRUE;
             - and the associated event time.
 
-        :return: List [-1,-1] for invalid requests
+        :return: List [element, element_time] for invalid requests
         :rtype: List
         '''
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
-        invalid_status = ['-1','-1']
-
         if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
             if id <= self._NX_MAX_DEVICES[query_type]:
@@ -210,9 +211,10 @@ class PanelInterface:
                 cached_attribute_time=self.deviceBank[query_type][id-1].get(element+'_time')
                 status = [cached_attribute,cached_attribute_time]
             else:
-                status = invalid_status
+                 raise GetStatusError("ID out of range")
+                
         else:
-            status = invalid_status
+            raise GetStatusError("Invalid query type")
             
         return status
 
