@@ -49,8 +49,7 @@ class PanelInterface:
             "PA": max_partitions,
         }
 
-        # OS specific serial port the NX587E is attached to
-        # COMX for Windows; /dev/ttyUSB0 style for Linux
+        # Serial port attached to the NX587E e.g /dev/ttyUSB0
         self._port = port
 
         # The callback function called when a partition or zone
