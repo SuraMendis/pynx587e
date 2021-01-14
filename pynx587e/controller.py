@@ -136,7 +136,7 @@ class PanelInterface:
                 # defined in NX_MESSAGE_TYPES.
                 NXMessage = {}
                 for i, v in enumerate(
-                        raw_event[id_start_char:len(raw_event)-1]
+                        raw_event[id_start_char:len(raw_event)]
                         ):
                     NXMessage[
                         model._NX_MESSAGE_TYPES[
