@@ -1,3 +1,10 @@
+# Define the highest addressable ZN/PN in the alarm system
+_NX_MAX_DEVICES = {
+    "ZN": 48,
+    "PA": 2,
+}
+
+
 # A Zone Status Message syntax is like: ZN002FttBaillb where:
 #  ZN = Zone Identifer
 #  002 = The Zone Number/ID
