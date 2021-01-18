@@ -46,13 +46,12 @@ class PanelInterface:
 
     :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
     '''
-    def __init__(self, port, keymap, cb):
+    def __init__(self, port, keymap):
         # Serial port attached to the NX587E e.g /dev/ttyUSB0
         self._port = port
 
-        # The callback function called when a partition or zone
-        # status changes
-        self.callbackf = cb
+        # Initialise call back function, which can be set by parent
+        self.on_event = ''
 
         # Set instance variable keymap or throw exception
         # keymap is used by send(...)
@@ -61,13 +60,8 @@ class PanelInterface:
         else:
             raise KeyMapError("Unsupported keymap")
 
-        # if (keymap != "USA" and keymap != "AUNZ"):
-        #    raise KeyMapError("keymap must be: USA or AUNZ")
-        # else:
-        #    self._keymap = keymap
-
-        # Disconnection flag
-        self._run_flag = True
+        # Thread flag
+        self._run_flag = False
 
         # Queues for thread communication
         self._command_q = queue.Queue(maxsize=0)
@@ -85,23 +79,17 @@ class PanelInterface:
                 self._direct_query(device, i+1)
                 i = i+1
 
-        # NOTE: Thread creation happens in _control
-        self._control()
-        self.send("nx587_setup")
-        # Give some time for the _serial_writer thread to process
-        # above command
-        time.sleep(0.25)
-
     def connect(self):
         '''
-        Connect to an NX587E device
+        Connect to the NX587E device
         '''
-        if self._run_flag is not False:
+        if self._run_flag is False:
             # Thread control flag
             self._run_flag = True
 
             # Create threads for serial reading, writing, and processing
             self._control()
+            time.sleep(0.5)
 
             # Configure NX587E reporting options
             self.send("nx587_setup")
@@ -110,7 +98,7 @@ class PanelInterface:
 
     def disconnect(self):
         '''
-        Disconnect from an NX587E device
+        Disconnect from the NX587E device
         '''
         if self._run_flag:
             self._run_flag = False
@@ -254,7 +242,8 @@ class PanelInterface:
                             # Execute the callback function with the
                             # latest event state that changed.
                             if skip_callback is False:
-                                self.callbackf(event)
+                                if self.on_event != '':
+                                    self.on_event(event)
                         else:
                             # Message not supported
                             pass
@@ -279,21 +268,24 @@ class PanelInterface:
         :return: List [element, element_time] for invalid requests
         :rtype: List
         '''
-        # Check if the query_type is valid as defined in
-        # _NX_MESSAGE_TYPES
-        if query_type in model._NX_MESSAGE_TYPES:
-            # Check if the id is valid as defined in _NX_MAX_DEVICES
-            if id <= model._NX_MAX_DEVICES[query_type]:
-                cached_attribute = self.deviceBank[
-                    query_type][id-1].get(element)
-                cached_attribute_time = self.deviceBank[
-                    query_type][id-1].get(element+'_time')
-                status = [cached_attribute, cached_attribute_time]
-            else:
-                raise GetStatusError("ID out of range")
+        if self._run_flag:
+            # Check if the query_type is valid as defined in
+            # _NX_MESSAGE_TYPES
+            if query_type in model._NX_MESSAGE_TYPES:
+                # Check if the id is valid as defined in _NX_MAX_DEVICES
+                if id <= model._NX_MAX_DEVICES[query_type]:
+                    cached_attribute = self.deviceBank[
+                        query_type][id-1].get(element)
+                    cached_attribute_time = self.deviceBank[
+                        query_type][id-1].get(element+'_time')
+                    status = [cached_attribute, cached_attribute_time]
+                else:
+                    raise GetStatusError("ID out of range")
 
+            else:
+                raise GetStatusError("Invalid query type")
         else:
-            raise GetStatusError("Invalid query type")
+            raise ConnectionError("Not connected")
 
         return status
 
