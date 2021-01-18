@@ -24,6 +24,10 @@ class GetStatusError(PanelInterfaceError):
     ''' Invalid query or device IDF '''
 
 
+class ConnectionError(PanelInterfaceError):
+    ''' Connection already established '''
+
+
 class PanelInterface:
     ''' Connect and manage Interlogix, Caddx and Hills Reliance alarm
     panels via the NX-587E serial module.
@@ -42,13 +46,7 @@ class PanelInterface:
 
     :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
     '''
-    def __init__(self, port, max_zone, max_partitions, keymap, cb):
-        # Define the highest addressable ZN/PN in the alarm system
-        self._NX_MAX_DEVICES = {
-            "ZN": max_zone,
-            "PA": max_partitions,
-        }
-
+    def __init__(self, port, keymap, cb):
         # Serial port attached to the NX587E e.g /dev/ttyUSB0
         self._port = port
 
@@ -58,10 +56,15 @@ class PanelInterface:
 
         # Set instance variable keymap or throw exception
         # keymap is used by send(...)
-        if (keymap != "USA" and keymap != "AUNZ"):
-            raise KeyMapError("keymap must be: USA or AUNZ")
-        else:
+        if keymap in model._supported_keymaps:
             self._keymap = keymap
+        else:
+            raise KeyMapError("Unsupported keymap")
+
+        # if (keymap != "USA" and keymap != "AUNZ"):
+        #    raise KeyMapError("keymap must be: USA or AUNZ")
+        # else:
+        #    self._keymap = keymap
 
         # Disconnection flag
         self._run_flag = True
@@ -73,14 +76,13 @@ class PanelInterface:
         # Create deviceBank from NX_MAX_DEVICES definition to represent
         # the defined number of devices (e.g. Zones and Partitions)
         self.deviceBank = {}
-        for device, max_item in self._NX_MAX_DEVICES.items():
+        for device, max_item in model._NX_MAX_DEVICES.items():
             self.deviceBank[device] = []
             i = 0
             while i < max_item:
                 self.deviceBank[device].append(
                     flexdevice.FlexDevice(model._NX_MESSAGE_TYPES[device]))
                 self._direct_query(device, i+1)
-                # time.sleep(0.05)
                 i = i+1
 
         # NOTE: Thread creation happens in _control
@@ -89,6 +91,69 @@ class PanelInterface:
         # Give some time for the _serial_writer thread to process
         # above command
         time.sleep(0.25)
+
+    def connect(self):
+        '''
+        Connect to an NX587E device
+        '''
+        if self._run_flag is not False:
+            # Thread control flag
+            self._run_flag = True
+
+            # Create threads for serial reading, writing, and processing
+            self._control()
+
+            # Configure NX587E reporting options
+            self.send("nx587_setup")
+        else:
+            raise ConnectionError("Active connection already exists")
+
+    def disconnect(self):
+        '''
+        Disconnect from an NX587E device
+        '''
+        if self._run_flag:
+            self._run_flag = False
+        else:
+            raise ConnectionError("Not connected")
+
+    def _decode_event(self, raw_event):
+        '''
+        Decode and return a dictionary representation a raw status event
+        '''
+        # raw_event is a valid event type if first two characters are defined
+        # model.NX_MESSAGE_TYPES.
+        for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
+            if raw_event[0:2] == key_nxMsgtypes:
+                # Extract the numerical ID which is one or more conconsecutive
+                # digits following the two digit message type
+                id_start_char = 2
+                status_position = id_start_char
+                num_char = id_start_char + 1
+                while raw_event[2:num_char].isnumeric():
+                    id = int(raw_event[2:num_char])
+                    num_char += 1
+                    # ID can be one or more digits in length,
+                    # so advance the status_position indicator
+                    status_position += 1
+
+                # NXStatus represents the characters contained in raw_event
+                # positioned after the id.
+                #  UPPER CASE characters represent 'TRUE',
+                #  lower case characters represent 'False'.
+                NXStatus = {}
+                for i, v in enumerate(
+                        raw_event[status_position:len(raw_event)]
+                        ):
+                    NXStatus[
+                        model._NX_MESSAGE_TYPES[
+                            key_nxMsgtypes][i]] = v.isupper()
+
+                NXEvent = {'event': key_nxMsgtypes,
+                           'id': id, "status": NXStatus}
+            else:
+                pass
+        return NXEvent
 
     def _process_event(self, raw_event):
         ''' Decode, track and report changes to transition
@@ -155,7 +220,7 @@ class PanelInterface:
                 # Therefore, ensure the id is within the NX_MAX_DEVICES
                 # value to avoid a out of range index error.
 
-                if id <= self._NX_MAX_DEVICES[key_nxMsgtypes]:
+                if id <= model._NX_MAX_DEVICES[key_nxMsgtypes]:
                     # id is within range
                     for msg_key, msg_value in NXMessage.items():
                         # Get the previous attribute value and compare
@@ -218,7 +283,7 @@ class PanelInterface:
         # _NX_MESSAGE_TYPES
         if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
-            if id <= self._NX_MAX_DEVICES[query_type]:
+            if id <= model._NX_MAX_DEVICES[query_type]:
                 cached_attribute = self.deviceBank[
                     query_type][id-1].get(element)
                 cached_attribute_time = self.deviceBank[
@@ -253,7 +318,7 @@ class PanelInterface:
         # _NX_MESSAGE_TYPES
         if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
-            if id <= self._NX_MAX_DEVICES[query_type]:
+            if id <= model._NX_MAX_DEVICES[query_type]:
                 # Construct a query based on the NX587E Specification
                 # Q001 to Q192 is for Zone Queries (Zone 1-192)
                 # Q193 to Q200 is for Partition  Queries (1-9)
