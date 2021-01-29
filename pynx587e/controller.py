@@ -21,7 +21,7 @@ class KeyMapError(PanelInterfaceError):
 
 
 class GetStatusError(PanelInterfaceError):
-    ''' Invalid query or device IDF '''
+    ''' Invalid query or device ID '''
 
 
 class ConnectionError(PanelInterfaceError):
@@ -29,85 +29,49 @@ class ConnectionError(PanelInterfaceError):
 
 
 class PanelInterface:
-    ''' Connect and manage Interlogix, Caddx and Hills Reliance alarm
-    panels via the NX-587E serial module.
+    ''' Automation interface for NX-series alarm systems using the NX-587E
+    virtual keypad module.
 
-    :param port: An NX148E function command or user code
-    :type port: int
-    :param max_zone: Highest Zone number to track
-    :type max_zone: int
-    :param max_partitions: Highest Partition number to track
-    :type max_partitions: int
-    :param keymap: USA or AUNZ (Hills Reliance panels should use AUNZ)
-    :type max_partitions: string
-    :param cb: function in your application that gets called when a
-     Zone or Partition Event occurs.
-    :type cb: function
+    :param port: Serial port (e.g COM1 or /dev/ttyUSB0 or similar)
+    :type port: string
+    :param keymap: USA or AUNZ (Australian / NZ systems should use AUNZ)
 
     :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
     '''
     def __init__(self, port, keymap):
-        # Serial port attached to the NX587E e.g /dev/ttyUSB0
         self._port = port
 
-        # Initialise call back function, which can be set by parent
-        self.on_event = ''
-
-        # Set instance variable keymap or throw exception
-        # keymap is used by send(...)
+        # Refer to documentation in model._supported_keymaps for purpose
         if keymap in model._supported_keymaps:
             self._keymap = keymap
         else:
             raise KeyMapError("Unsupported keymap")
 
-        # Thread flag
+        # Thread control flag
         self._run_flag = False
-
-        # Queues for thread communication
-        self._command_q = queue.Queue(maxsize=0)
-        self._raw_event_q = queue.Queue(maxsize=0)
-
-        # Create deviceBank from NX_MAX_DEVICES definition to represent
-        # the defined number of devices (e.g. Zones and Partitions)
-        self.deviceBank = {}
-        for device, max_item in model._NX_MAX_DEVICES.items():
-            self.deviceBank[device] = []
-            i = 0
-            while i < max_item:
-                self.deviceBank[device].append(
-                    flexdevice.FlexDevice(model._NX_MESSAGE_TYPES[device]))
-                self._direct_query(device, i+1)
-                i = i+1
 
     def connect(self):
         '''
-        Connect to the NX587E device
+        Connect to the NX-587E device
         '''
         if self._run_flag is False:
-            # Thread control flag
-            self._run_flag = True
-
-            # Create threads for serial reading, writing, and processing
-            self._control()
-            time.sleep(0.5)
-
-            # Configure NX587E reporting options
-            self.send("nx587_setup")
+            self._init_control()
         else:
             raise ConnectionError("Active connection already exists")
 
     def disconnect(self):
         '''
-        Disconnect from the NX587E device
+        Disconnect from the NX-587E device
         '''
         if self._run_flag:
-            self._run_flag = False
+            self._stop()
+            self.serial_conn.close()
         else:
             raise ConnectionError("Not connected")
 
     def _decode_event(self, raw_event):
         '''
-        Decode and return a dictionary representation a raw status event
+        Return a dictionary representation a raw status event
         '''
         # raw_event is a valid event type if first two characters are defined
         # model.NX_MESSAGE_TYPES.
@@ -142,6 +106,60 @@ class PanelInterface:
             else:
                 pass
         return NXEvent
+
+    def _process_event_new(self, NXEvent):
+        event_type = NXEvent.get('event')
+        id = NXEvent.get('id')
+        status_list = NXEvent.get('status')
+
+        # NOTE: deviceBank list stores the previous state
+        # positioned by the sequential device id as the index.
+        # Therefore, ensure the id is within the NX_MAX_DEVICES
+        # value to avoid a out of range index error.
+
+        if id <= model._NX_MAX_DEVICES[event_type]:
+            # id is within range
+            for msg_key, msg_value in status_list.items():
+                # Get the previous attribute value and compare
+                # current value. If it doesn't match, an 'event'
+                # has occurred, so update the state with the new
+                # value
+                previous_attribute_value = self.deviceBank[
+                    event_type][id-1].get(msg_key)
+
+                skip_callback = False
+                if previous_attribute_value != msg_value:
+                    if previous_attribute_value == -1:
+                        skip_callback = True
+                    else:
+                        pass
+
+                    # Update value
+                    self.deviceBank[
+                        event_type][id-1].set(msg_key, msg_value)
+
+                    # Construct an event dictionary to
+                    # represent the latest state
+                    event = {"event": event_type,
+                             "id": id,
+                             "tag": msg_key,
+                             "value": msg_value,
+                             "time": self.deviceBank[
+                                    event_type][
+                                        id-1].get(str(msg_key+'_time')),
+                             }
+                    # Execute the callback function with the
+                    # latest event state that changed.
+                    if skip_callback is False:
+                        if self.on_event is not None:
+                            self.on_event(event)
+                else:
+                    # Message not supported
+                    pass
+        else:
+            # Received a message with an ID > MAX devices,
+            # ignore message
+            pass
 
     def _process_event(self, raw_event):
         ''' Decode, track and report changes to transition
@@ -242,7 +260,7 @@ class PanelInterface:
                             # Execute the callback function with the
                             # latest event state that changed.
                             if skip_callback is False:
-                                if self.on_event != '':
+                                if self.on_event is not None:
                                     self.on_event(event)
                         else:
                             # Message not supported
@@ -253,8 +271,8 @@ class PanelInterface:
                     pass
 
     def getStatus(self, query_type, id, element):
-        ''' Returns the individual status and time
-        for a defined element as as list.
+        ''' Returns state and time for 'element' in
+        'query_type' as a List
 
         :param query_type: Query type as defined in _NX_MESSAGE_TYPES
         :type query_type: string
@@ -291,7 +309,7 @@ class PanelInterface:
 
     def _direct_query(self, query_type, id):
         '''Directly query the Zone or Partition status from the
-        NX587E. Results are processed by _event_process.
+        NX-587E. Results are processed by _event_process.
 
         :param query_type: Query type as defined in _MX_MESSAGE_TYPES
         :type query_type: string
@@ -311,7 +329,7 @@ class PanelInterface:
         if query_type in model._NX_MESSAGE_TYPES:
             # Check if the id is valid as defined in _NX_MAX_DEVICES
             if id <= model._NX_MAX_DEVICES[query_type]:
-                # Construct a query based on the NX587E Specification
+                # Construct a query based on the NX-587E Specification
                 # Q001 to Q192 is for Zone Queries (Zone 1-192)
                 # Q193 to Q200 is for Partition  Queries (1-9)
                 if query_type == "PA":
@@ -324,13 +342,13 @@ class PanelInterface:
                     self._command_q.put_nowait(query)
                 except serial.SerialException as e:
                     print(e)
-                    self.stop()
+                    self._stop()
 
     def send(self, in_command):
-        ''''Sends an alarm panel command or user code via the NX587E
+        ''''Sends an alarm panel command or user code via the NX-587E
         interface.
 
-        :param in_command: An NX148E function command or user code
+        :param in_command: An NX-148E function command or user code
         :type in_command: string
 
         :raises serial.SerialException: If serial port error occurs
@@ -345,11 +363,11 @@ class PanelInterface:
            stay, chime, exit, bypass, cancel, fire, medical, hold_up,
            or a 4 or 6 digit user code.
         '''
-        # The NX587E presents as a NX148E (Non-AU/NZ keypad version)
+        # The NX-587E presents as a NX148E (Non-AU/NZ keypad version)
         #
         # Australian/NZ alarm panels (e.g. Hills Reliance) expects
         # a NX148E (AU/NZ Version) and not the version presented by
-        # the NX587E.
+        # the NX-587E.
         #
         # Consequently, the self.keymap parameter must be set to 2 for
         # AU/NZ installations; or 1 for non-AU/NZ installations.
@@ -375,7 +393,7 @@ class PanelInterface:
                 self._command_q.put_nowait(command)
             except serial.SerialException as e:
                 print(e)
-                self.stop()
+                self._stop()
 
     def _serial_writer(self, serial_conn, command_q):
         ''' Reads command from queue and writes to the serial port.
@@ -420,14 +438,13 @@ class PanelInterface:
         serial_reader = serialreader.Serialreader(serial_conn)
 
         while self._run_flag:
-            # NX587E outputs an event starting with a line feed and
+            # NX-587E outputs an event starting with a line feed and
             # terminating with a charater break
             try:
                 raw_line = serial_reader.readline().decode().strip()
-            except serial.SerialException:
-                pass
+            except Exception:
                 # manage a hot-unplug here
-                self.stop()
+                self._stop()
             else:
                 if (raw_line):
                     raw_event_q.put(raw_line)
@@ -453,20 +470,39 @@ class PanelInterface:
                 # process the raw event
                 self._process_event(raw_event)
 
-    def _control(self):
-        ''' Establishes a connection to the NX587E and creates
+    def _init_control(self):
+        ''' Establishes a connection to the NX-587E and creates
         consumer and producer threads to handle messages
         '''
         try:
-            serial_conn = serial.Serial(port=self._port)
+            self.serial_conn = serial.Serial(port=self._port)
         except serial.SerialException as e:
             print(e)
-            self.stop()
+            self._stop()
         else:
-            # Threads
+            # Queues for outbound commands and inbound events
+            self._command_q = queue.Queue(maxsize=0)
+            self._raw_event_q = queue.Queue(maxsize=0)
+
+            # Queue up command to set NX-587 reporting options
+            self.send("nx587_setup")
+
+            # Create deviceBank from NX_MAX_DEVICES definition to represent
+            # the defined number of devices (e.g. Zones and Partitions)
+            self.deviceBank = {}
+            for device, max_item in model._NX_MAX_DEVICES.items():
+                self.deviceBank[device] = []
+                i = 0
+                while i < max_item:
+                    self.deviceBank[device].append(
+                        flexdevice.FlexDevice(model._NX_MESSAGE_TYPES[device]))
+                    self._direct_query(device, i+1)
+                    i = i+1
+
+            # Define threads
             serial_writer_thread = Thread(
                 target=self._serial_writer,
-                args=(serial_conn,
+                args=(self.serial_conn,
                       self._command_q,
                       ),
                 daemon=True
@@ -474,7 +510,7 @@ class PanelInterface:
 
             serial_reader_thread = Thread(
                 target=self._serial_reader,
-                args=(serial_conn,
+                args=(self.serial_conn,
                       self._raw_event_q,
                       ),
                 daemon=True
@@ -482,17 +518,20 @@ class PanelInterface:
 
             event_producer_thread = Thread(
                 target=self._event_producer,
-                args=(serial_conn,
+                args=(self.serial_conn,
                       self._raw_event_q,
                       ),
                 )
 
-            # Start threads
+            # Thread control flag
+            self._run_flag = True
+
+            # Start communications threads
             serial_writer_thread.start()
             serial_reader_thread.start()
             event_producer_thread.start()
 
-    def stop(self):
+    def _stop(self):
         '''
         Stop instance by setting _run_flag to False
         '''

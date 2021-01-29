@@ -71,6 +71,10 @@ _keymap_usa = {
     "hold_up": "H",
 }
 
+# The NX-587E emulates function buttons from the USA version
+# of the NX-148E keypad. Hills Reliance NX alarm panels
+# (Australian and New Zealand market) respond differently to
+# these emulated function buttons.
 _supported_keymaps = {
     "AUNZ": _keymap_au_nz,
     "USA": _keymap_usa
