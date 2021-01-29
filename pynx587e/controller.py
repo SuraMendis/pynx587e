@@ -32,16 +32,18 @@ class PanelInterface:
     ''' Automation interface for NX-series alarm systems using the NX-587E
     virtual keypad module.
 
-    :param port: Serial port (e.g COM1 or /dev/ttyUSB0 or similar)
+    :param port: Serial port (COM1 /dev/ttyUSB0 or similar)
     :type port: string
+
     :param keymap: USA or AUNZ (Australian / NZ systems should use AUNZ)
+    :type keympa: string
 
     :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
     '''
     def __init__(self, port, keymap):
         self._port = port
 
-        # Refer to documentation in model._supported_keymaps for purpose
+        # Refer to model._supported_keymaps comments for purpose
         if keymap in model._supported_keymaps:
             self._keymap = keymap
         else:
@@ -71,14 +73,18 @@ class PanelInterface:
 
     def _decode_event(self, raw_event):
         '''
-        Return a dictionary representation a raw status event
+        Return a dictionary representation of raw_event
+
+        :param raw_event: A transition status message from the NX-587E
+        :type raw_event: string
         '''
-        # raw_event is a valid event type if first two characters are defined
-        # model.NX_MESSAGE_TYPES.
         for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
+            # First two characters of raw_event indicate message type
+            # Compare message type against supported types contained
+            # in NX_MESSAGE_TYPES
             if raw_event[0:2] == key_nxMsgtypes:
-                # Extract the numerical ID which is one or more conconsecutive
-                # digits following the two digit message type
+                # ID is one or more consecutive digits following the
+                # two-character message type.
                 id_start_char = 2
                 status_position = id_start_char
                 num_char = id_start_char + 1
@@ -86,11 +92,11 @@ class PanelInterface:
                     id = int(raw_event[2:num_char])
                     num_char += 1
                     # ID can be one or more digits in length,
-                    # so advance the status_position indicator
+                    # advance the status_position indicator
                     status_position += 1
 
-                # NXStatus represents the characters contained in raw_event
-                # positioned after the id.
+                # NXStatus list represents the characters contained in
+                # raw_event positioned after the id.
                 #  UPPER CASE characters represent 'TRUE',
                 #  lower case characters represent 'False'.
                 NXStatus = {}
@@ -108,12 +114,11 @@ class PanelInterface:
         return NXEvent
 
     def _update_state(self, event):
-        ''' Update the tracked element state and trigger the callback
-        function, self.on_event
+        ''' Update the individual element state with those contained in
+        'event' trigger the callback self.on_event
 
         .. note: If the existing element value is -1 then this
-        is the first update to the element (typically during
-        instantiation of this module) and the callback function
+        is the first update to the element and the callback function
         is skipped.
 
         :param event: An NXEvent object
@@ -126,26 +131,29 @@ class PanelInterface:
         if id <= model._NX_MAX_DEVICES[event_type]:
             # id is within range
             for msg_key, msg_value in status_list.items():
-                # Get the previous attribute value and compare
-                # current value. If it doesn't match, an 'event'
-                # has occurred, so update the state with the new
-                # value
-                previous_attribute_value = self.deviceBank[
+                # Get the tracked element value
+                previous_element_value = self.deviceBank[
                     event_type][id-1].get(msg_key)
-
+                # An event has changed state if the current value
+                # does not equal the prevenous value
                 skip_callback = False
-                if previous_attribute_value != msg_value:
-                    if previous_attribute_value == -1:
+                if previous_element_value != msg_value:
+                    # -1 indicates an update has yet to occur.
+                    # This is the first update, to be trigged by this
+                    # class to establish state.
+                    if previous_element_value == -1:
+                        # skip the callback function to whilst the state is
+                        # being established.
                         skip_callback = True
                     else:
                         pass
 
-                    # Update value
+                    # Update element status
                     self.deviceBank[
                         event_type][id-1].set(msg_key, msg_value)
 
                     # Construct an event dictionary to
-                    # represent the latest state
+                    # represent the latest element state
                     event = {"event": event_type,
                              "id": id,
                              "tag": msg_key,
@@ -160,7 +168,7 @@ class PanelInterface:
                         if self.on_event is not None:
                             self.on_event(event)
                 else:
-                    # Message not supported
+                    # Message type not supported
                     pass
         else:
             # Received a message with an ID > MAX devices,
@@ -173,6 +181,9 @@ class PanelInterface:
 
         :param query_type: Query type as defined in _NX_MESSAGE_TYPES
         :type query_type: string
+
+        :param id: ID relating to the query type.
+        :type id: int
 
         .. note:: Supported elements are defined in _NX_MESSAGE_TYPES
            For example: getStatus('ZN',1,fault) could return
@@ -215,11 +226,6 @@ class PanelInterface:
 
         .. note:: _direct_query is for internal use module use. Users of
         pyNX587E should use getStatus rather than _direct_query.
-
-        .. note:: _event_process inhibits its callback function for the
-        first status response it processes. This allows _direct_query
-        to be used internally to establish an accurate state during
-        start-up.
         '''
         # Check if the query_type is valid as defined in
         # _NX_MESSAGE_TYPES
@@ -260,14 +266,6 @@ class PanelInterface:
            stay, chime, exit, bypass, cancel, fire, medical, hold_up,
            or a 4 or 6 digit user code.
         '''
-        # The NX-587E presents as a NX148E (Non-AU/NZ keypad version)
-        #
-        # Australian/NZ alarm panels (e.g. Hills Reliance) expects
-        # a NX148E (AU/NZ Version) and not the version presented by
-        # the NX-587E.
-        #
-        # Consequently, the self.keymap parameter must be set to 2 for
-        # AU/NZ installations; or 1 for non-AU/NZ installations.
 
         # Set supported_commands
         if self._keymap in model._supported_keymaps:
@@ -364,17 +362,14 @@ class PanelInterface:
             except queue.Empty:
                 pass
             else:
-                # process the raw event
-                # self._process_event(raw_event)
-
                 # convert the raw event to NXEvent object
                 event = self._decode_event(raw_event)
                 # update event state
                 self._update_state(event)
 
     def _init_control(self):
-        ''' Establishes a connection to the NX-587E and creates
-        consumer and producer threads to handle messages
+        ''' Establish a connection to the NX-587E, create
+        consumer and producer threads to handle messages and commands
         '''
         try:
             self.serial_conn = serial.Serial(port=self._port)
