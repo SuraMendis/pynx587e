@@ -108,14 +108,20 @@ class PanelInterface:
         return NXEvent
 
     def _update_state(self, event):
+        ''' Update the tracked element state and trigger the callback
+        function, self.on_event
+
+        .. note: If the existing element value is -1 then this
+        is the first update to the element (typically during
+        instantiation of this module) and the callback function
+        is skipped.
+
+        :param event: An NXEvent object
+        :type NXEvent
+        '''
         event_type = event.get('event')
         id = event.get('id')
         status_list = event.get('status')
-
-        # NOTE: deviceBank list stores the previous state
-        # positioned by the sequential device id as the index.
-        # Therefore, ensure the id is within the NX_MAX_DEVICES
-        # value to avoid a out of range index error.
 
         if id <= model._NX_MAX_DEVICES[event_type]:
             # id is within range
@@ -160,115 +166,6 @@ class PanelInterface:
             # Received a message with an ID > MAX devices,
             # ignore message
             pass
-
-    def _process_event(self, raw_event):
-        ''' Decode, track and report changes to transition
-        messages (ZN and PA) and their individual elements.
-
-        .. note: If the existing element value is -1 then this
-        is the first update to the element (typically during
-        instantiation of this module) and the callback function
-        is skipped.
-
-        :param raw_event: A Zone or Partition Status Message
-        :type raw_event: string
-        '''
-        # Determine if raw_event is a valid status message type by
-        # comparing it with in NX_MESSAGE_TYPES.
-        for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
-            if raw_event[0:2] == key_nxMsgtypes:
-                # Determine the device ID from raw_event. ID can be
-                # 3 chars (001 for Zone Status Messages: ZN001) or 1
-                # char (1 for Partition Status Messages PA1)
-                #
-                # Begining from the 3rd (indexed from 0) character of
-                # raw_event, check if the char is numeric and expand
-                # the range until a non-numeric is found. id will now
-                # contain the required id.
-                id_start_char = 2
-                num_char = id_start_char + 1
-                while raw_event[2:num_char].isnumeric():
-                    id = int(raw_event[2:num_char])
-                    num_char += 1
-                    # raw_event can contain a 3 digit or 1 digit
-                    # id so the position of non-id message
-                    # attributes is offset due to the length of
-                    # the id in raw_event. id_start_char tracks
-                    # the start position of non-id characters
-                    id_start_char += 1
-
-                # Construct a dictionary to represent the status
-                # characters contained in raw_event positioned after
-                # the id. UPPER CASE characters represent 'TRUE',
-                # lower case characters represent 'False'.
-                # The character position in raw_event message
-                # determins the underlying attribute/property as
-                # defined in NX_MESSAGE_TYPES.
-                NXMessage = {}
-                for i, v in enumerate(
-                        raw_event[id_start_char:len(raw_event)]
-                        ):
-                    NXMessage[
-                        model._NX_MESSAGE_TYPES[
-                            key_nxMsgtypes][i]] = v.isupper()
-
-                # The attribute characters of raw_event is now
-                # represented in NXMessage (excluding message
-                # type and id).
-                #
-                # Iterate through the current message represented in
-                # NXMessage items and compare each attribute with
-                # that of previous attribute value stored in
-                # deviceBank list.
-                #
-                # NOTE: deviceBank list stores the previous state
-                # positioned by the sequential device id as the index.
-                # Therefore, ensure the id is within the NX_MAX_DEVICES
-                # value to avoid a out of range index error.
-
-                if id <= model._NX_MAX_DEVICES[key_nxMsgtypes]:
-                    # id is within range
-                    for msg_key, msg_value in NXMessage.items():
-                        # Get the previous attribute value and compare
-                        # current value. If it doesn't match, an 'event'
-                        # has occurred, so update the state with the new
-                        # value
-                        previous_attribute_value = self.deviceBank[
-                            key_nxMsgtypes][id-1].get(msg_key)
-
-                        skip_callback = False
-                        if previous_attribute_value != msg_value:
-                            if previous_attribute_value == -1:
-                                skip_callback = True
-                            else:
-                                pass
-
-                            # Update value
-                            self.deviceBank[
-                                key_nxMsgtypes][id-1].set(msg_key, msg_value)
-
-                            # Construct an event dictionary to
-                            # represent the latest state
-                            event = {"event": key_nxMsgtypes,
-                                     "id": id,
-                                     "tag": msg_key,
-                                     "value": msg_value,
-                                     "time": self.deviceBank[
-                                         key_nxMsgtypes][
-                                             id-1].get(str(msg_key+'_time')),
-                                     }
-                            # Execute the callback function with the
-                            # latest event state that changed.
-                            if skip_callback is False:
-                                if self.on_event is not None:
-                                    self.on_event(event)
-                        else:
-                            # Message not supported
-                            pass
-                else:
-                    # Received a message with an ID > MAX devices,
-                    # ignore message
-                    pass
 
     def getStatus(self, query_type, id, element):
         ''' Returns state and time for 'element' in
