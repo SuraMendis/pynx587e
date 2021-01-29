@@ -107,10 +107,10 @@ class PanelInterface:
                 pass
         return NXEvent
 
-    def _process_event_new(self, NXEvent):
-        event_type = NXEvent.get('event')
-        id = NXEvent.get('id')
-        status_list = NXEvent.get('status')
+    def _update_state(self, event):
+        event_type = event.get('event')
+        id = event.get('id')
+        status_list = event.get('status')
 
         # NOTE: deviceBank list stores the previous state
         # positioned by the sequential device id as the index.
@@ -468,7 +468,12 @@ class PanelInterface:
                 pass
             else:
                 # process the raw event
-                self._process_event(raw_event)
+                # self._process_event(raw_event)
+
+                # convert the raw event to NXEvent object
+                event = self._decode_event(raw_event)
+                # update event state
+                self._update_state(event)
 
     def _init_control(self):
         ''' Establishes a connection to the NX-587E and creates
