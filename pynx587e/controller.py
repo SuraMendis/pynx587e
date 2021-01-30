@@ -12,23 +12,23 @@ import serialreader
 import flexdevice
 
 
-class PanelInterfaceError(Exception):
-    '''Basic Exception for errors raised with PanelInterface'''
+class NXSystemError(Exception):
+    '''Basic Exception for errors raised with NXSystem'''
 
 
-class KeyMapError(PanelInterfaceError):
+class KeyMapError(NXSystemError):
     ''' Keymap should be US or AUNZ '''
 
 
-class GetStatusError(PanelInterfaceError):
+class GetStatusError(NXSystemError):
     ''' Invalid query or device ID '''
 
 
-class ConnectionError(PanelInterfaceError):
+class ConnectionError(NXSystemError):
     ''' Connection already established '''
 
 
-class PanelInterface:
+class NXSystem:
     ''' Automation interface for NX-series alarm systems using the NX-587E
     virtual keypad module.
 
