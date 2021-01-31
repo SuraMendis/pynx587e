@@ -79,40 +79,37 @@ class NXController:
         :type raw_event: string
         '''
         NXEvent = None
-        for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
-            print("RAW", raw_event)
-            # First two characters of raw_event indicate message type
-            # Compare message type against supported types contained
-            # in NX_MESSAGE_TYPES
-            if raw_event[0:2] == key_nxMsgtypes:
-                # ID is one or more consecutive digits following the
-                # two-character message type.
-                id_start_char = 2
-                status_position = id_start_char
-                num_char = id_start_char + 1
-                while raw_event[2:num_char].isnumeric():
-                    id = int(raw_event[2:num_char])
-                    num_char += 1
-                    # ID can be one or more digits in length,
-                    # advance the status_position indicator
-                    status_position += 1
+        # First two characters of raw_event indicate message type
+        # Compare message type against supported types contained
+        # in NX_MESSAGE_TYPES
+        key_nxMsgtypes = raw_event[0:2]
+        if key_nxMsgtypes in model._NX_MESSAGE_TYPES:
+            # ID is one or more consecutive digits following the
+            # two-character message type.
+            id_start_char = 2
+            status_position = id_start_char
+            num_char = id_start_char + 1
+            while raw_event[2:num_char].isnumeric():
+                id = int(raw_event[2:num_char])
+                num_char += 1
+                # ID can be one or more digits in length, advance the
+                # status_position indicator
+                status_position += 1
 
-                # NXStatus list represents the characters contained in
-                # raw_event positioned after the id.
-                #  UPPER CASE characters represent 'TRUE',
-                #  lower case characters represent 'False'.
-                NXStatus = {}
-                for i, v in enumerate(
-                        raw_event[status_position:len(raw_event)]
-                        ):
-                    NXStatus[
-                        model._NX_MESSAGE_TYPES[
-                            key_nxMsgtypes][i]] = v.isupper()
+            # NXStatus list represents the characters contained in raw_event
+            # positioned after the id.
+            # UPPER CASE characters represent 'TRUE',
+            # lower case characters represent 'False'.
+            NXStatus = {}
+            for i, v in enumerate(
+                    raw_event[status_position:len(raw_event)]
+                    ):
+                NXStatus[
+                    model._NX_MESSAGE_TYPES[
+                        key_nxMsgtypes][i]] = v.isupper()
 
-                NXEvent = {'event': key_nxMsgtypes,
-                           'id': id, "status": NXStatus}
-            else:
-                pass
+            NXEvent = {'event': key_nxMsgtypes, 'id': id, "status": NXStatus}
+
         return NXEvent
 
     def _update_state(self, event):
