@@ -28,7 +28,7 @@ class ConnectionError(NXSystemError):
     ''' Connection already established '''
 
 
-class NXSystem:
+class NXController:
     ''' Automation interface for NX-series alarm systems using the NX-587E
     virtual keypad module.
 
@@ -38,7 +38,7 @@ class NXSystem:
     :param keymap: USA or AUNZ (Australian / NZ systems should use AUNZ)
     :type keympa: string
 
-    :raises pynx587e.controller.KeyMapError: keymap must be USA or AUNZ
+    :raises pynx587e.nx587e.KeyMapError: keymap must be USA or AUNZ
     '''
     def __init__(self, port, keymap):
         self._port = port
