@@ -78,7 +78,9 @@ class NXController:
         :param raw_event: A transition status message from the NX-587E
         :type raw_event: string
         '''
+        NXEvent = None
         for key_nxMsgtypes in model._NX_MESSAGE_TYPES:
+            print("RAW", raw_event)
             # First two characters of raw_event indicate message type
             # Compare message type against supported types contained
             # in NX_MESSAGE_TYPES
@@ -364,8 +366,9 @@ class NXController:
             else:
                 # convert the raw event to NXEvent object
                 event = self._decode_event(raw_event)
-                # update event state
-                self._update_state(event)
+                # update event state, event == None means unknown msg
+                if(event is not None):
+                    self._update_state(event)
 
     def _init_control(self):
         ''' Establish a connection to the NX-587E, create
