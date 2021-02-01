@@ -59,7 +59,9 @@ class NXController:
         Connect to the NX-587E device
         '''
         if self._run_threads is False:
-            # Start the Serial Connection Manager thread
+            # Start the Serial Connection Manager thread that launches
+            # reader/writer/processor threads and manages re-connection
+            # use-cases.
             self._connection_requested = True
             connection_mgr_thread = Thread(target=self._connection_manager,
                                            daemon=True)
