@@ -66,7 +66,7 @@ class NXController:
         Disconnect from the NX-587E device
         '''
         if self._run_flag:
-            self._stop()
+            self._stop_threads()
             self.serial_conn.close()
         else:
             raise ConnectionError("Not connected")
@@ -244,7 +244,7 @@ class NXController:
                     self._command_q.put_nowait(query)
                 except serial.SerialException as e:
                     print(e)
-                    self._stop()
+                    self._stop_threads()
 
     def send(self, in_command):
         ''''Sends an alarm panel command or user code via the NX-587E
@@ -287,7 +287,7 @@ class NXController:
                 self._command_q.put_nowait(command)
             except serial.SerialException as e:
                 print(e)
-                self._stop()
+                self._stop_threads()
 
     def _serial_writer(self, serial_conn, command_q):
         ''' Reads command from queue and writes to the serial port.
@@ -339,7 +339,7 @@ class NXController:
             except Exception as e:
                 # manage a hot-unplug here
                 print("ser reader: ", e)
-                self._stop()
+                self._stop_threads()
             else:
                 if (raw_line):
                     raw_event_q.put(raw_line)
@@ -376,7 +376,7 @@ class NXController:
             self.serial_conn = serial.Serial(baudrate=9600, port=self._port)
         except serial.SerialException as e:
             print(e)
-            self._stop()
+            self._stop_threads()
         else:
             # Queues for outbound commands and inbound events
             self._command_q = queue.Queue(maxsize=0)
@@ -429,7 +429,7 @@ class NXController:
             serial_reader_thread.start()
             event_producer_thread.start()
 
-    def _stop(self):
+    def _stop_threads(self):
         '''
         Stop instance by setting _run_flag to False
         '''
