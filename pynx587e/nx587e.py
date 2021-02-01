@@ -49,15 +49,21 @@ class NXController:
         else:
             raise KeyMapError("Unsupported keymap")
 
-        # Thread control flag
-        self._run_flag = False
+        # Instance variables
+        self._run_threads = False
+        self._connection_requested = False
+        self._last_config_time = 0
 
     def connect(self):
         '''
         Connect to the NX-587E device
         '''
-        if self._run_flag is False:
-            self._init_control()
+        if self._run_threads is False:
+            # Start the Serial Connection Manager thread
+            self._connection_requested = True
+            connection_mgr_thread = Thread(target=self._connection_manager,
+                                           daemon=True)
+            connection_mgr_thread.start()
         else:
             raise ConnectionError("Active connection already exists")
 
@@ -65,7 +71,8 @@ class NXController:
         '''
         Disconnect from the NX-587E device
         '''
-        if self._run_flag:
+        if self._run_threads:
+            self._connection_requested = False
             self._stop_threads()
             self.serial_conn.close()
         else:
@@ -193,7 +200,7 @@ class NXController:
         :return: List [element, element_time] for invalid requests
         :rtype: List
         '''
-        if self._run_flag:
+        if self._run_threads:
             # Check if the query_type is valid as defined in
             # _NX_MESSAGE_TYPES
             if query_type in model._NX_MESSAGE_TYPES:
@@ -280,6 +287,7 @@ class NXController:
         # or check if it is the nd587_setup command
         elif in_command == "nx587_setup":
             command = model._setup_options
+            self._last_config_time = time.time()
 
         # Send the command to the _command_q Queue
         if command != "":
@@ -301,7 +309,7 @@ class NXController:
 
         .. note:: Designed to run as a daemonic thread
         '''
-        while self._run_flag:
+        while self._run_threads:
             try:
                 # ensure a blocking mechanism is used to reduce CPU
                 # usage i.e do not use get_no_wait()
@@ -331,14 +339,14 @@ class NXController:
         # DO NOT use read_until or readline from the pyserial
         serial_reader = serialreader.Serialreader(serial_conn)
 
-        while self._run_flag:
+        while self._run_threads:
             # NX-587E outputs an event starting with a line feed and
             # terminating with a charater break
             try:
                 raw_line = serial_reader.readline().decode().strip()
-            except Exception as e:
-                # manage a hot-unplug here
-                print("ser reader: ", e)
+            except Exception:
+                # manage a hot-unplug of serial port
+                # e.g. USB converter removed
                 self._stop_threads()
             else:
                 if (raw_line):
@@ -355,7 +363,7 @@ class NXController:
         :type command_q: Queue
 
         '''
-        while self._run_flag:
+        while self._run_threads:
             time.sleep(0.01)
             try:
                 raw_event = raw_event_q.get_nowait()
@@ -368,7 +376,7 @@ class NXController:
                 if(event is not None):
                     self._update_state(event)
 
-    def _init_control(self):
+    def _connect_and_process(self):
         ''' Establish a connection to the NX-587E, create
         consumer and producer threads to handle messages and commands
         '''
@@ -422,15 +430,63 @@ class NXController:
                 )
 
             # Thread control flag
-            self._run_flag = True
+            self._run_threads = True
 
             # Start communications threads
             serial_writer_thread.start()
             serial_reader_thread.start()
             event_producer_thread.start()
 
+    def _connection_manager(self):
+        '''
+        Periodically monitor the serial interface. When the interface is
+        available, (re)establish a connection to the NX-587E if a connect()
+        has been issued (i.e self._connection_requested is True)
+        '''
+        while self._connection_requested:
+            if (self._last_config_time == 0) or (
+                 int(time.time()) > self._last_config_time + 30):
+
+                # print("last config value", self._last_config_time)
+                ready_to_connect = self._serial_is_available()
+                if ready_to_connect:
+                    # (re)establish read/write/process threads
+                    # print("port available")
+                    self._connect_and_process()
+                else:
+                    # Serial Interface not available for new connections
+                    # Reason 1: Interface physically not available (removed)
+                    # Reason 2: Interface already in use
+                    #
+                    # Send reconfig every 60 seconds regardless of status
+                    self.send("nx587_setup")
+                    # print("port unavailable")
+
+                    # Slow thread execution
+                    time.sleep(30)
+
     def _stop_threads(self):
         '''
         Stop instance by setting _run_flag to False
         '''
-        self._run_flag = False
+        self._run_threads = False
+
+    def _serial_is_available(self):
+        '''
+        Periodically test if the serial interface (e.g. USB RS232 adaptor)
+        is available.
+
+        :return: True if serial interface is available for use, false otherwise
+        :rtype: Boolean
+        '''
+        ret = False
+        test = serial.Serial(baudrate=9600, timeout=0, writeTimeout=0)
+        test.port = self._port
+        try:
+            test.open()
+            if test.is_open:
+                test.close()
+                ret = True
+        except serial.serialutil.SerialException:
+            pass
+        return ret
