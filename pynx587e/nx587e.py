@@ -36,7 +36,7 @@ class NXController:
     :type port: string
 
     :param keymap: USA or AUNZ (Australian / NZ systems should use AUNZ)
-    :type keympa: string
+    :type keymap: string
 
     :raises pynx587e.nx587e.KeyMapError: keymap must be USA or AUNZ
     '''
