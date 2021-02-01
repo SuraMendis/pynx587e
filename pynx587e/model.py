@@ -57,6 +57,8 @@ _keymap_au_nz = {
     "fire": "F",
     "medical": "M",
     "hold_up": "H",
+    "nx_quick_arm": "S",
+    "nx_stay": "K",
 }
 
 # The NX587E default supported keymap
@@ -69,8 +71,14 @@ _keymap_usa = {
     "fire": "F",
     "medical": "M",
     "hold_up": "H",
+    "nx_quick_arm": "E",
+    "nx_stay": "S",
 }
 
+# The NX-587E emulates function buttons from the USA version
+# of the NX-148E keypad. Hills Reliance NX alarm panels
+# (Australian and New Zealand market) respond differently to
+# these emulated function buttons.
 _supported_keymaps = {
     "AUNZ": _keymap_au_nz,
     "USA": _keymap_usa
