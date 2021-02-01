@@ -59,7 +59,7 @@ class NXController:
         Connect to the NX-587E device
         '''
         if self._run_threads is False:
-            # Start the Serial Connection Manager thread that launches
+            # Start the Serial Connection Manager thread that manages
             # reader/writer/processor threads and manages re-connection
             # use-cases.
             self._connection_requested = True
@@ -88,13 +88,12 @@ class NXController:
         :type raw_event: string
         '''
         NXEvent = None
-        # First two characters of raw_event indicate message type
-        # Compare message type against supported types contained
-        # in NX_MESSAGE_TYPES
+        # Validate raw_event type by comparing first two characters
+        # with model._NX_MESSAGE_TYPES.
         key_nxMsgtypes = raw_event[0:2]
         if key_nxMsgtypes in model._NX_MESSAGE_TYPES:
-            # ID is one or more consecutive digits following the
-            # two-character message type.
+            # raw_event contains a partitions/zone ID that is one or more
+            # consecutive digits following the two-character message type.
             id_start_char = 2
             status_position = id_start_char
             num_char = id_start_char + 1
