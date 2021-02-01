@@ -336,8 +336,9 @@ class NXController:
             # terminating with a charater break
             try:
                 raw_line = serial_reader.readline().decode().strip()
-            except Exception:
+            except Exception as e:
                 # manage a hot-unplug here
+                print("ser reader: ", e)
                 self._stop()
             else:
                 if (raw_line):
@@ -372,7 +373,7 @@ class NXController:
         consumer and producer threads to handle messages and commands
         '''
         try:
-            self.serial_conn = serial.Serial(port=self._port)
+            self.serial_conn = serial.Serial(baudrate=9600, port=self._port)
         except serial.SerialException as e:
             print(e)
             self._stop()
