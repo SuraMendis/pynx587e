@@ -189,7 +189,7 @@ class NXController:
             # ID > MAX devices, ignore message
             pass
 
-    def getStatus(self, query_type, id, element):
+    def get_status(self, query_type, id, element):
         ''' Returns state and time for 'element' in
         'query_type' as a List
 
