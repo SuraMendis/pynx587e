@@ -169,19 +169,19 @@ class NXController:
 
                     # Construct an event dictionary to
                     # represent the latest element state
-                    event = {"event": event_type,
-                             "id": id,
-                             "tag": msg_key,
-                             "value": msg_value,
-                             "time": self.deviceBank[
-                                    event_type][
-                                        id-1].get(str(msg_key+'_time')),
-                             }
+                    individual_event = {"event": event_type,
+                                        "id": id,
+                                        "tag": msg_key,
+                                        "value": msg_value,
+                                        "time": self.deviceBank[
+                                         event_type][
+                                         id-1].get(str(msg_key+'_time')),
+                                        }
                     # Execute the callback function with the
                     # latest event state that changed.
                     if skip_callback is False:
                         if self.on_event is not None:
-                            self.on_event(event)
+                            self.on_event(individual_event)
                 else:
                     # Message not supported, ignore message
                     pass
