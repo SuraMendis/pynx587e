@@ -36,7 +36,7 @@ class NXController:
     :type port: string
 
     :param keymap: USA or AUNZ (Australian / NZ systems should use AUNZ)
-    :type keympa: string
+    :type keymap: string
 
     :raises pynx587e.nx587e.KeyMapError: keymap must be USA or AUNZ
     '''
@@ -59,7 +59,9 @@ class NXController:
         Connect to the NX-587E device
         '''
         if self._run_threads is False:
-            # Start the Serial Connection Manager thread
+            # Start the Serial Connection Manager thread that manages
+            # reader/writer/processor threads and manages re-connection
+            # use-cases.
             self._connection_requested = True
             connection_mgr_thread = Thread(target=self._connection_manager,
                                            daemon=True)
@@ -85,14 +87,13 @@ class NXController:
         :param raw_event: A transition status message from the NX-587E
         :type raw_event: string
         '''
-        NXEvent = None
-        # First two characters of raw_event indicate message type
-        # Compare message type against supported types contained
-        # in NX_MESSAGE_TYPES
+        multi_state_event = None
+        # Validate raw_event type by comparing first two characters
+        # with model._NX_MESSAGE_TYPES.
         key_nxMsgtypes = raw_event[0:2]
         if key_nxMsgtypes in model._NX_MESSAGE_TYPES:
-            # ID is one or more consecutive digits following the
-            # two-character message type.
+            # raw_event contains a partitions/zone ID that is one or more
+            # consecutive digits following the two-character message type.
             id_start_char = 2
             status_position = id_start_char
             num_char = id_start_char + 1
@@ -103,21 +104,22 @@ class NXController:
                 # status_position indicator
                 status_position += 1
 
-            # NXStatus list represents the characters contained in raw_event
-            # positioned after the id.
+            # multi_state_status_list list represents the characters contained
+            # in raw_event positioned after the id.
             # UPPER CASE characters represent 'TRUE',
             # lower case characters represent 'False'.
-            NXStatus = {}
+            multi_state_status_list = {}
             for i, v in enumerate(
                     raw_event[status_position:len(raw_event)]
                     ):
-                NXStatus[
+                multi_state_status_list[
                     model._NX_MESSAGE_TYPES[
                         key_nxMsgtypes][i]] = v.isupper()
 
-            NXEvent = {'event': key_nxMsgtypes, 'id': id, "status": NXStatus}
+            multi_state_event = {'event': key_nxMsgtypes,
+                                 'id': id, "status": multi_state_status_list}
 
-        return NXEvent
+        return multi_state_event
 
     def _update_state(self, event):
         ''' Update the individual element state with those contained in
@@ -127,21 +129,28 @@ class NXController:
         is the first update to the element and the callback function
         is skipped.
 
-        :param event: An NXEvent object
-        :type NXEvent
+        -- note:
+        multi_state_event = {'event': key_nxMsgtypes,
+                             'id': id, "status": multi_state_status_list
+                             }
+
+        :param event: An multi_state_event List
+        :type List
         '''
         event_type = event.get('event')
         id = event.get('id')
+        # status_list is a List representing states in the multi-state
+        # event
         status_list = event.get('status')
 
+        # Check if partition/zone ID is within _NX_MAX_DEVICES limits
         if id <= model._NX_MAX_DEVICES[event_type]:
-            # id is within range
+            # for each event in the multi-state event...
             for msg_key, msg_value in status_list.items():
-                # Get the tracked element value
+                # Get the previously stored event...
                 previous_element_value = self.deviceBank[
                     event_type][id-1].get(msg_key)
-                # An event has changed state if the current value
-                # does not equal the prevenous value
+                # Compare previously stored event with current event
                 skip_callback = False
                 if previous_element_value != msg_value:
                     # -1 indicates an update has yet to occur.
@@ -160,28 +169,27 @@ class NXController:
 
                     # Construct an event dictionary to
                     # represent the latest element state
-                    event = {"event": event_type,
-                             "id": id,
-                             "tag": msg_key,
-                             "value": msg_value,
-                             "time": self.deviceBank[
-                                    event_type][
-                                        id-1].get(str(msg_key+'_time')),
-                             }
+                    individual_event = {"event": event_type,
+                                        "id": id,
+                                        "tag": msg_key,
+                                        "value": msg_value,
+                                        "time": self.deviceBank[
+                                         event_type][
+                                         id-1].get(str(msg_key+'_time')),
+                                        }
                     # Execute the callback function with the
                     # latest event state that changed.
                     if skip_callback is False:
                         if self.on_event is not None:
-                            self.on_event(event)
+                            self.on_event(individual_event)
                 else:
-                    # Message type not supported
+                    # Message not supported, ignore message
                     pass
         else:
-            # Received a message with an ID > MAX devices,
-            # ignore message
+            # ID > MAX devices, ignore message
             pass
 
-    def getStatus(self, query_type, id, element):
+    def get_status(self, query_type, id, element):
         ''' Returns state and time for 'element' in
         'query_type' as a List
 
@@ -370,7 +378,7 @@ class NXController:
             except queue.Empty:
                 pass
             else:
-                # convert the raw event to NXEvent object
+                # convert the raw event to multi_state_event List
                 event = self._decode_event(raw_event)
                 # update event state, event == None means unknown msg
                 if(event is not None):
