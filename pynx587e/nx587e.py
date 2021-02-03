@@ -295,8 +295,6 @@ class NXController:
         # or check if it is the nd587_setup command
         elif in_command == "nx587_setup":
             command = model._setup_options
-            self._last_config_time = time.time()
-
         # Send the command to the _command_q Queue
         if command != "":
             try:
@@ -327,7 +325,10 @@ class NXController:
             else:
                 b = bytearray()
                 b.extend(command.encode())
-                serial_conn.write(b)
+                try:
+                    serial_conn.write(b)
+                except serial.serialutil.PortNotOpenError:
+                    self._stop_threads()
 
     def _serial_reader(self, serial_conn, raw_event_q):
         ''' Reads message from serial port and writes it to a Queue
@@ -389,7 +390,8 @@ class NXController:
         consumer and producer threads to handle messages and commands
         '''
         try:
-            self.serial_conn = serial.Serial(baudrate=9600, port=self._port)
+            self.serial_conn = serial.Serial(baudrate=9600,
+                                             port=self._port, exclusive=True)
         except serial.SerialException as e:
             print(e)
             self._stop_threads()
@@ -453,7 +455,7 @@ class NXController:
         '''
         while self._connection_requested:
             if (self._last_config_time == 0) or (
-                 int(time.time()) > self._last_config_time + 30):
+                 int(time.monotonic()) > self._last_config_time + 30):
 
                 # print("last config value", self._last_config_time)
                 ready_to_connect = self._serial_is_available()
@@ -467,17 +469,19 @@ class NXController:
                     # Reason 2: Interface already in use
                     #
                     # Send reconfig every 60 seconds regardless of status
+                    self._last_config_time = time.monotonic()
                     self.send("nx587_setup")
                     # print("port unavailable")
 
-                    # Slow thread execution
-                    time.sleep(30)
+            # FIXME: busy-wait optimise
+            time.sleep(0.1)
 
     def _stop_threads(self):
         '''
         Stop instance by setting _run_flag to False
         '''
         self._run_threads = False
+        self.serial_conn.close()
 
     def _serial_is_available(self):
         '''
@@ -488,7 +492,8 @@ class NXController:
         :rtype: Boolean
         '''
         ret = False
-        test = serial.Serial(baudrate=9600, timeout=0, writeTimeout=0)
+        test = serial.Serial(baudrate=9600, timeout=0,
+                             writeTimeout=0, exclusive=True)
         test.port = self._port
         try:
             test.open()
