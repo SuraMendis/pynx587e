@@ -319,7 +319,7 @@ class NXController:
             try:
                 # ensure a blocking mechanism is used to reduce CPU
                 # usage i.e do not use get_no_wait()
-                command = command_q.get()
+                command = command_q.get(block=True, timeout=2)
             except queue.Empty:
                 pass
             else:
@@ -373,9 +373,9 @@ class NXController:
 
         '''
         while self._run_threads:
-            time.sleep(0.01)
             try:
-                raw_event = raw_event_q.get_nowait()
+                # block to prevent busy-waiting
+                raw_event = raw_event_q.get(block=True, timeout=2)
             except queue.Empty:
                 pass
             else:
@@ -437,6 +437,7 @@ class NXController:
                 args=(self.serial_conn,
                       self._raw_event_q,
                       ),
+                daemon=True
                 )
 
             # Thread control flag
@@ -453,28 +454,25 @@ class NXController:
         available, (re)establish a connection to the NX-587E if a connect()
         has been issued (i.e self._connection_requested is True)
         '''
+        CHECK_EVERY_SEC = 30
         while self._connection_requested:
-            if (self._last_config_time == 0) or (
-                 int(time.monotonic()) > self._last_config_time + 30):
+            ready_to_connect = self._serial_is_available()
+            if ready_to_connect:
+                # (re)establish read/write/process threads
+                # print("port available")
+                self._connect_and_process()
+            else:
+                # Serial Interface not available for new connections
+                # Reason 1: Interface physically not available (removed)
+                # Reason 2: Interface already in use
+                #
+                # Send reconfig every 60 seconds regardless of status
+                self._last_config_time = time.monotonic()
+                print("reconfig...")
+                self.send("nx587_setup")
+                # print("port unavailable")
 
-                # print("last config value", self._last_config_time)
-                ready_to_connect = self._serial_is_available()
-                if ready_to_connect:
-                    # (re)establish read/write/process threads
-                    # print("port available")
-                    self._connect_and_process()
-                else:
-                    # Serial Interface not available for new connections
-                    # Reason 1: Interface physically not available (removed)
-                    # Reason 2: Interface already in use
-                    #
-                    # Send reconfig every 60 seconds regardless of status
-                    self._last_config_time = time.monotonic()
-                    self.send("nx587_setup")
-                    # print("port unavailable")
-
-            # FIXME: busy-wait optimise
-            time.sleep(0.1)
+            time.sleep(CHECK_EVERY_SEC)
 
     def _stop_threads(self):
         '''
