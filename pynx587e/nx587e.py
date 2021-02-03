@@ -236,7 +236,7 @@ class NXController:
         :param query_type: Query type as defined in _MX_MESSAGE_TYPES
         :type query_type: string
 
-        :raises serial.SerialException: If serial port error occurs
+        :raises queue.Full: If command queue is full
 
         .. note:: _direct_query is for internal use module use. Users of
         pyNX587E should use getStatus rather than _direct_query.
