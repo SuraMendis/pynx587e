@@ -268,7 +268,7 @@ class NXController:
         :param in_command: An NX-148E function command or user code
         :type in_command: string
 
-        :raises serial.SerialException: If serial port error occurs
+        :raises queue.Full: If command queue is full
 
         .. note::
            AU/NZ installations support the following commands
@@ -299,7 +299,7 @@ class NXController:
         if command != "":
             try:
                 self._command_q.put_nowait(command)
-            except serial.SerialException as e:
+            except queue.Full as e:
                 print(e)
                 self._stop_threads()
 
