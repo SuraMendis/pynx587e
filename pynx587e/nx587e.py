@@ -257,7 +257,7 @@ class NXController:
                 # which will be processed by the serial writer thread
                 try:
                     self._command_q.put_nowait(query)
-                except serial.SerialException as e:
+                except queue.Full as e:
                     print(e)
                     self._stop_threads()
 
