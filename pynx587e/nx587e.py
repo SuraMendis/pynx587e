@@ -25,7 +25,7 @@ class GetStatusError(NXSystemError):
 
 
 class ConnectionError(NXSystemError):
-    ''' Connection already established '''
+    ''' Serial Port Connection Error'''
 
 
 class NXController:
@@ -52,7 +52,13 @@ class NXController:
         # Instance variables
         self._run_threads = False
         self._connection_requested = False
-        self._last_config_time = 0
+        self._first_time = True
+
+        # Call back functions
+        self.on_event = None
+        self.on_connect = None
+        self.on_connection_error = None
+        self.on_disconnect = None
 
     def connect(self):
         '''
@@ -396,6 +402,7 @@ class NXController:
             print(e)
             self._stop_threads()
         else:
+            self._first_time = False
             # Queues for outbound commands and inbound events
             self._command_q = queue.Queue(maxsize=0)
             self._raw_event_q = queue.Queue(maxsize=0)
@@ -448,6 +455,10 @@ class NXController:
             serial_reader_thread.start()
             event_producer_thread.start()
 
+            # Trigger on_connect back function
+            if self.on_connect is not None:
+                self.on_connect()
+
     def _connection_manager(self):
         '''
         Periodically monitor the serial interface. When the interface is
@@ -466,11 +477,13 @@ class NXController:
                 # Reason 1: Interface physically not available (removed)
                 # Reason 2: Interface already in use
                 #
-                # Send reconfig every 60 seconds regardless of status
-                self._last_config_time = time.monotonic()
-                print("reconfig...")
-                self.send("nx587_setup")
-                # print("port unavailable")
+                # Send reconfig every CHECK_EVERY_SEC seconds regardless
+                # of status
+                if not self._first_time:
+                    self.send("nx587_setup")
+                else:
+                    e_msg = self._port + " not available"
+                    raise ConnectionError(e_msg)
 
             time.sleep(CHECK_EVERY_SEC)
 
