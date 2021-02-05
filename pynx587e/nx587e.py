@@ -57,7 +57,6 @@ class NXController:
         # Callback functions
         self.on_event = None
         self.on_connect = None
-        self.on_connection_error = None
         self.on_disconnect = None
 
     def connect(self):
@@ -92,7 +91,7 @@ class NXController:
         else:
             raise ConnectionError("Not connected")
 
-    def _decode_event(self, raw_event):
+    def _decode(self, raw_event):
         '''
         Return a dictionary representation of raw_event
 
@@ -135,7 +134,7 @@ class NXController:
 
         return multi_state_event
 
-    def _update_state(self, event):
+    def _update(self, event):
         ''' Update the individual topic state with those contained in
         'event' and trigger the callback self.on_event
 
@@ -396,10 +395,10 @@ class NXController:
                 pass
             else:
                 # convert the raw event to multi_state_event List
-                event = self._decode_event(raw_event)
+                event = self._decode(raw_event)
                 # update event state, event == None means unknown msg
                 if(event is not None):
-                    self._update_state(event)
+                    self._update(event)
 
     def _connect_and_process(self):
         ''' Establish a connection to the NX-587E, create
@@ -491,10 +490,6 @@ class NXController:
                 # of status
                 if not self._first_time:
                     self.send("nx587_setup")
-                else:
-                    # Run call back function if defined.
-                    if self.on_connection_error is not None:
-                        self.on_connection_error
 
             time.sleep(CHECK_EVERY_SEC)
 
