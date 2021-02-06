@@ -103,13 +103,13 @@ class NXController:
         event_type = raw_event[0:2]
         # Valid 'event_type's' are defined in model._NX.MESSAGE_TYPES
         if event_type in model._NX_EVENT_TYPES:
-            # Extract id (e.g partition # or zone #)
+            # Extract node-id (e.g partition # or zone #)
             # (1..n digits after character 2 in raw_event)
             id_start_char = 2
             status_position = id_start_char
             num_char = id_start_char + 1
             while raw_event[2:num_char].isnumeric():
-                id = int(raw_event[2:num_char])
+                node_id = int(raw_event[2:num_char])
                 num_char += 1
                 # id can be 1..n digits so
                 # advance status_position indicator
@@ -130,7 +130,7 @@ class NXController:
                         event_type][i]] = v.isupper()
 
             multi_state_event = {'type': event_type,
-                                 'id': id, "topics": topic_list}
+                                 'node_id': node_id, "topics": topic_list}
 
         return multi_state_event
 
@@ -144,25 +144,25 @@ class NXController:
 
         -- note:
         multi_state_event = {'type': event_type,
-                             'id': id, "topics": topic_list
+                             'node_id': node_id, "topics": topic_list
                              }
 
         :param event: An multi_state_event List
         :type List
         '''
         event_type = event.get('type')
-        id = event.get('id')
+        node_id = event.get('node_id')
         # topic_list is a List representing states in the multi-state
         # event
         topic_list = event.get('topics')
 
         # Check if partition/zone ID is within _NX_MAX_DEVICES limits
-        if id <= model._NX_MAX_DEVICES[event_type]:
+        if node_id <= model._NX_MAX_DEVICES[event_type]:
             # for each event in the multi-state event...
             for topic, payload in topic_list.items():
                 # Get the previously stored topic...
                 previous_topic_value = self.deviceBank[
-                    event_type][id-1].get(topic)
+                    event_type][node_id-1].get(topic)
                 # Compare previously stored event with current event
                 skip_callback = False
                 if previous_topic_value != payload:
@@ -178,17 +178,17 @@ class NXController:
 
                     # Update topic status
                     self.deviceBank[
-                        event_type][id-1].set(topic, payload)
+                        event_type][node_id-1].set(topic, payload)
 
                     # Construct an event dictionary to
                     # represent the latest event state
                     individual_event = {"type": event_type,
-                                        "id": id,
+                                        "node_id": node_id,
                                         "topic": topic,
                                         "payload": payload,
                                         "time": self.deviceBank[
                                          event_type][
-                                         id-1].get(str(topic+'_time')),
+                                         node_id-1].get(str(topic+'_time')),
                                         }
                     # Execute the callback function with the
                     # latest event state that changed.
@@ -202,14 +202,14 @@ class NXController:
             # ID > MAX devices, ignore message
             pass
 
-    def get_status(self, event_type, id, topic):
+    def get_status(self, event_type, node_id, topic):
         ''' Returns state and time for 'topic' in event_type as a List
 
-        :param event_type: Query type as defined in _NX_EVENT_TYPES
+        :param event_type: event_type as defined in _NX_EVENT_TYPES
         :type event_type: string
 
-        :param id: ID relating to the query type.
-        :type id: int
+        :param node_id: ID relating to the event_type.
+        :type node_id: int
 
         :param topic: topic value
         :type topic: string
@@ -227,15 +227,15 @@ class NXController:
             # Check if the query_type is valid as defined in
             # _NX_EVENT_TYPES
             if event_type in model._NX_EVENT_TYPES:
-                # Check if the id is valid as defined in _NX_MAX_DEVICES
-                if id <= model._NX_MAX_DEVICES[event_type]:
+                # Check if node_id is valid as defined in _NX_MAX_DEVICES
+                if node_id <= model._NX_MAX_DEVICES[event_type]:
                     cached_attribute = self.deviceBank[
-                        event_type][id-1].get(topic)
+                        event_type][node_id-1].get(topic)
                     cached_attribute_time = self.deviceBank[
-                        event_type][id-1].get(topic+'_time')
+                        event_type][node_id-1].get(topic+'_time')
                     status = [cached_attribute, cached_attribute_time]
                 else:
-                    raise GetStatusError("id out of range")
+                    raise GetStatusError("node_id out of range")
 
             else:
                 raise GetStatusError("Invalid event type")
@@ -244,7 +244,7 @@ class NXController:
 
         return status
 
-    def _direct_query(self, event_type, id):
+    def _direct_query(self, event_type, node_id):
         '''Directly query the Zone or Partition status from the
         NX-587E. Results are processed by _event_process.
 
@@ -259,15 +259,15 @@ class NXController:
         # Check if the query_type is valid as defined in
         # _NX_EVENT_TYPES
         if event_type in model._NX_EVENT_TYPES:
-            # Check if the id is valid as defined in _NX_MAX_DEVICES
-            if id <= model._NX_MAX_DEVICES[event_type]:
+            # Check if the node_id is valid as defined in _NX_MAX_DEVICES
+            if node_id <= model._NX_MAX_DEVICES[event_type]:
                 # Construct a query based on the NX-587E Specification
                 # Q001 to Q192 is for Zone Queries (Zone 1-192)
                 # Q193 to Q200 is for Partition  Queries (1-9)
                 if event_type == "PA":
-                    query = "Q"+str(192+id)
+                    query = "Q"+str(192+node_id)
                 elif event_type == "ZN":
-                    query = "Q"+str(id).zfill(3)
+                    query = "Q"+str(node_id).zfill(3)
                 # Put the query into the _command_q
                 # which will be processed by the serial writer thread
                 try:
