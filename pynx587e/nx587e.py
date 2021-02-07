@@ -25,7 +25,7 @@ class GetStatusError(NXSystemError):
 
 
 class ConnectionError(NXSystemError):
-    ''' Connection already established '''
+    ''' Serial Port Connection Error'''
 
 
 class NXController:
@@ -43,25 +43,30 @@ class NXController:
     def __init__(self, port, keymap):
         self._port = port
 
-        # Refer to model._supported_keymaps comments for purpose
+        # model._supported_keymaps documents purpose
         if keymap in model._supported_keymaps:
             self._keymap = keymap
         else:
             raise KeyMapError("Unsupported keymap")
 
-        # Instance variables
+        # Control Flags
         self._run_threads = False
         self._connection_requested = False
-        self._last_config_time = 0
+        self._first_time = True
+
+        # Callback functions
+        self.on_event = None
+        self.on_connect = None
+        self.on_disconnect = None
 
     def connect(self):
         '''
         Connect to the NX-587E device
         '''
         if self._run_threads is False:
-            # Start the Serial Connection Manager thread that manages
-            # reader/writer/processor threads and manages re-connection
-            # use-cases.
+            # Start the Serial Connection Manager thread to manage
+            # reader/writer/processor threads and re-connection
+            # logic.
             self._connection_requested = True
             connection_mgr_thread = Thread(target=self._connection_manager,
                                            daemon=True)
@@ -74,13 +79,19 @@ class NXController:
         Disconnect from the NX-587E device
         '''
         if self._run_threads:
+            # Connection Manager control flag
             self._connection_requested = False
+            # Thread termination control flag
             self._stop_threads()
+            # Serial port close
             self.serial_conn.close()
+            # Run call back function if defined
+            if self.on_disconnect is not None:
+                self.on_disconnect()
         else:
             raise ConnectionError("Not connected")
 
-    def _decode_event(self, raw_event):
+    def _decode(self, raw_event):
         '''
         Return a dictionary representation of raw_event
 
@@ -88,94 +99,96 @@ class NXController:
         :type raw_event: string
         '''
         multi_state_event = None
-        # Validate raw_event type by comparing first two characters
-        # with model._NX_MESSAGE_TYPES.
-        key_nxMsgtypes = raw_event[0:2]
-        if key_nxMsgtypes in model._NX_MESSAGE_TYPES:
-            # raw_event contains a partitions/zone ID that is one or more
-            # consecutive digits following the two-character message type.
+
+        event_type = raw_event[0:2]
+        # Valid 'event_type's' are defined in model._NX.MESSAGE_TYPES
+        if event_type in model._NX_EVENT_TYPES:
+            # Extract node-id (e.g partition # or zone #)
+            # (1..n digits after character 2 in raw_event)
             id_start_char = 2
             status_position = id_start_char
             num_char = id_start_char + 1
             while raw_event[2:num_char].isnumeric():
-                id = int(raw_event[2:num_char])
+                node_id = int(raw_event[2:num_char])
                 num_char += 1
-                # ID can be one or more digits in length, advance the
-                # status_position indicator
+                # id can be 1..n digits so
+                # advance status_position indicator
                 status_position += 1
 
-            # multi_state_status_list list represents the characters contained
-            # in raw_event positioned after the id.
-            # UPPER CASE characters represent 'TRUE',
-            # lower case characters represent 'False'.
-            multi_state_status_list = {}
+            # topic_list is a position dependent list of characters
+            # representing topics in raw_event (starting after the id)
+            #
+            # The topic payload is is represented as as:
+            #  UPPER CASE character: 'TRUE'
+            #  lower case character: 'False'
+            topic_list = {}
             for i, v in enumerate(
                     raw_event[status_position:len(raw_event)]
                     ):
-                multi_state_status_list[
-                    model._NX_MESSAGE_TYPES[
-                        key_nxMsgtypes][i]] = v.isupper()
+                topic_list[
+                    model._NX_EVENT_TYPES[
+                        event_type][i]] = v.isupper()
 
-            multi_state_event = {'event': key_nxMsgtypes,
-                                 'id': id, "status": multi_state_status_list}
+            multi_state_event = {'type': event_type,
+                                 'node_id': node_id, "topics": topic_list}
 
         return multi_state_event
 
-    def _update_state(self, event):
-        ''' Update the individual element state with those contained in
-        'event' trigger the callback self.on_event
+    def _update(self, event):
+        ''' Update the individual topic state with those contained in
+        'event' and trigger the callback self.on_event
 
-        .. note: If the existing element value is -1 then this
+        .. note: If the existing topic value is -1 then this
         is the first update to the element and the callback function
         is skipped.
 
         -- note:
-        multi_state_event = {'event': key_nxMsgtypes,
-                             'id': id, "status": multi_state_status_list
+        multi_state_event = {'type': event_type,
+                             'node_id': node_id, "topics": topic_list
                              }
 
         :param event: An multi_state_event List
         :type List
         '''
-        event_type = event.get('event')
-        id = event.get('id')
-        # status_list is a List representing states in the multi-state
+        event_type = event.get('type')
+        node_id = event.get('node_id')
+        # topic_list is a List representing states in the multi-state
         # event
-        status_list = event.get('status')
+        topic_list = event.get('topics')
 
         # Check if partition/zone ID is within _NX_MAX_DEVICES limits
-        if id <= model._NX_MAX_DEVICES[event_type]:
+        if node_id <= model._NX_MAX_DEVICES[event_type]:
             # for each event in the multi-state event...
-            for msg_key, msg_value in status_list.items():
-                # Get the previously stored event...
-                previous_element_value = self.deviceBank[
-                    event_type][id-1].get(msg_key)
+            for topic, payload in topic_list.items():
+                # Get the previously stored topic...
+                previous_topic_value = self.deviceBank[
+                    event_type][node_id-1].get(topic)
                 # Compare previously stored event with current event
                 skip_callback = False
-                if previous_element_value != msg_value:
+                if previous_topic_value != payload:
                     # -1 indicates an update has yet to occur.
                     # This is the first update, to be trigged by this
                     # class to establish state.
-                    if previous_element_value == -1:
+                    if previous_topic_value == -1:
                         # skip the callback function to whilst the state is
                         # being established.
                         skip_callback = True
                     else:
                         pass
 
-                    # Update element status
+                    # Update topic status
                     self.deviceBank[
-                        event_type][id-1].set(msg_key, msg_value)
+                        event_type][node_id-1].set(topic, payload)
 
                     # Construct an event dictionary to
-                    # represent the latest element state
-                    individual_event = {"event": event_type,
-                                        "id": id,
-                                        "tag": msg_key,
-                                        "value": msg_value,
+                    # represent the latest event state
+                    individual_event = {"type": event_type,
+                                        "node_id": node_id,
+                                        "topic": topic,
+                                        "payload": payload,
                                         "time": self.deviceBank[
                                          event_type][
-                                         id-1].get(str(msg_key+'_time')),
+                                         node_id-1].get(str(topic+'_time')),
                                         }
                     # Execute the callback function with the
                     # latest event state that changed.
@@ -183,81 +196,83 @@ class NXController:
                         if self.on_event is not None:
                             self.on_event(individual_event)
                 else:
-                    # Message not supported, ignore message
+                    # Update not required
                     pass
         else:
             # ID > MAX devices, ignore message
             pass
 
-    def get_status(self, query_type, id, element):
-        ''' Returns state and time for 'element' in
-        'query_type' as a List
+    def get_status(self, event_type, node_id, topic):
+        ''' Returns state and time for 'topic' in event_type as a List
 
-        :param query_type: Query type as defined in _NX_MESSAGE_TYPES
-        :type query_type: string
+        :param event_type: event_type as defined in _NX_EVENT_TYPES
+        :type event_type: string
 
-        :param id: ID relating to the query type.
-        :type id: int
+        :param node_id: ID relating to the event_type.
+        :type node_id: int
 
-        .. note:: Supported elements are defined in _NX_MESSAGE_TYPES
+        :param topic: topic value
+        :type topic: string
+
+        .. note:: Supported topics are defined in _NX_EVENT_TYPES
            For example: getStatus('ZN',1,fault) could return
            [true,2021-01-05 16:00:29.689725] which means:
             - status of Zone 1's fault (tripped) is TRUE;
             - and the associated event time.
 
-        :return: List [element, element_time] for invalid requests
+        :return: List [topic, topic_time] for invalid requests
         :rtype: List
         '''
         if self._run_threads:
             # Check if the query_type is valid as defined in
-            # _NX_MESSAGE_TYPES
-            if query_type in model._NX_MESSAGE_TYPES:
-                # Check if the id is valid as defined in _NX_MAX_DEVICES
-                if id <= model._NX_MAX_DEVICES[query_type]:
+            # _NX_EVENT_TYPES
+            if event_type in model._NX_EVENT_TYPES:
+                # Check if node_id is valid as defined in _NX_MAX_DEVICES
+                if node_id <= model._NX_MAX_DEVICES[event_type]:
                     cached_attribute = self.deviceBank[
-                        query_type][id-1].get(element)
+                        event_type][node_id-1].get(topic)
                     cached_attribute_time = self.deviceBank[
-                        query_type][id-1].get(element+'_time')
+                        event_type][node_id-1].get(topic+'_time')
                     status = [cached_attribute, cached_attribute_time]
                 else:
-                    raise GetStatusError("ID out of range")
+                    raise GetStatusError("node_id out of range")
 
             else:
-                raise GetStatusError("Invalid query type")
+                raise GetStatusError("Invalid event type")
         else:
             raise ConnectionError("Not connected")
 
         return status
 
-    def _direct_query(self, query_type, id):
+    def _direct_query(self, event_type, node_id):
         '''Directly query the Zone or Partition status from the
         NX-587E. Results are processed by _event_process.
 
-        :param query_type: Query type as defined in _MX_MESSAGE_TYPES
-        :type query_type: string
+        :param event_type: Query type as defined in _MX_MESSAGE_TYPES
+        :type event_type: string
 
-        :raises serial.SerialException: If serial port error occurs
+        :raises queue.Full: If command queue is full
 
         .. note:: _direct_query is for internal use module use. Users of
         pyNX587E should use getStatus rather than _direct_query.
         '''
         # Check if the query_type is valid as defined in
-        # _NX_MESSAGE_TYPES
-        if query_type in model._NX_MESSAGE_TYPES:
-            # Check if the id is valid as defined in _NX_MAX_DEVICES
-            if id <= model._NX_MAX_DEVICES[query_type]:
+        # _NX_EVENT_TYPES
+        if event_type in model._NX_EVENT_TYPES:
+            # Check if the node_id is valid as defined in _NX_MAX_DEVICES
+            if node_id <= model._NX_MAX_DEVICES[event_type]:
                 # Construct a query based on the NX-587E Specification
                 # Q001 to Q192 is for Zone Queries (Zone 1-192)
                 # Q193 to Q200 is for Partition  Queries (1-9)
-                if query_type == "PA":
-                    query = "Q"+str(192+id)
-                elif query_type == "ZN":
-                    query = "Q"+str(id).zfill(3)
+                if event_type == "PA":
+                    query = "Q"+str(192+node_id)
+                elif event_type == "ZN":
+                    query = "Q"+str(node_id).zfill(3)
                 # Put the query into the _command_q
                 # which will be processed by the serial writer thread
                 try:
                     self._command_q.put_nowait(query)
-                except serial.SerialException as e:
+                except queue.Full as e:
                     print(e)
                     self._stop_threads()
 
@@ -268,7 +283,7 @@ class NXController:
         :param in_command: An NX-148E function command or user code
         :type in_command: string
 
-        :raises serial.SerialException: If serial port error occurs
+        :raises queue.Full: If command queue is full
 
         .. note::
            AU/NZ installations support the following commands
@@ -299,7 +314,7 @@ class NXController:
         if command != "":
             try:
                 self._command_q.put_nowait(command)
-            except serial.SerialException as e:
+            except queue.Full as e:
                 print(e)
                 self._stop_threads()
 
@@ -380,10 +395,10 @@ class NXController:
                 pass
             else:
                 # convert the raw event to multi_state_event List
-                event = self._decode_event(raw_event)
+                event = self._decode(raw_event)
                 # update event state, event == None means unknown msg
                 if(event is not None):
-                    self._update_state(event)
+                    self._update(event)
 
     def _connect_and_process(self):
         ''' Establish a connection to the NX-587E, create
@@ -396,6 +411,7 @@ class NXController:
             print(e)
             self._stop_threads()
         else:
+            self._first_time = False
             # Queues for outbound commands and inbound events
             self._command_q = queue.Queue(maxsize=0)
             self._raw_event_q = queue.Queue(maxsize=0)
@@ -411,7 +427,7 @@ class NXController:
                 i = 0
                 while i < max_item:
                     self.deviceBank[device].append(
-                        flexdevice.FlexDevice(model._NX_MESSAGE_TYPES[device]))
+                        flexdevice.FlexDevice(model._NX_EVENT_TYPES[device]))
                     self._direct_query(device, i+1)
                     i = i+1
 
@@ -448,6 +464,10 @@ class NXController:
             serial_reader_thread.start()
             event_producer_thread.start()
 
+            # Trigger on_connect back function
+            if self.on_connect is not None:
+                self.on_connect()
+
     def _connection_manager(self):
         '''
         Periodically monitor the serial interface. When the interface is
@@ -466,11 +486,10 @@ class NXController:
                 # Reason 1: Interface physically not available (removed)
                 # Reason 2: Interface already in use
                 #
-                # Send reconfig every 60 seconds regardless of status
-                self._last_config_time = time.monotonic()
-                print("reconfig...")
-                self.send("nx587_setup")
-                # print("port unavailable")
+                # Send reconfig every CHECK_EVERY_SEC seconds regardless
+                # of status
+                if not self._first_time:
+                    self.send("nx587_setup")
 
             time.sleep(CHECK_EVERY_SEC)
 
