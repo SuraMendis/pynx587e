@@ -1,5 +1,5 @@
 # Define the highest addressable ZN/PN in the alarm system
-_NX_MAX_DEVICES = {
+_NX_DEFAULT_NODES = {
     "ZN": 48,
     "PA": 2,
 }
