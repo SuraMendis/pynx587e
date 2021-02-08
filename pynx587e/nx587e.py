@@ -40,7 +40,9 @@ class NXController:
 
     :raises pynx587e.nx587e.KeyMapError: keymap must be USA or AUNZ
     '''
-    def __init__(self, port, keymap):
+    def __init__(self, port, keymap,
+                 max_zones=model._NX_DEFAULT_NODES.get('ZN'),
+                 max_partitions=model._NX_DEFAULT_NODES.get('PA')):
         self._port = port
 
         # model._supported_keymaps documents purpose
@@ -58,6 +60,11 @@ class NXController:
         self.on_event = None
         self.on_connect = None
         self.on_disconnect = None
+
+        self.NX_MAX_NODES = {
+            "ZN": max_zones,
+            "PA": max_partitions,
+        }
 
     def connect(self):
         '''
@@ -157,7 +164,7 @@ class NXController:
         topic_list = event.get('topics')
 
         # Check if partition/zone ID is within _NX_MAX_DEVICES limits
-        if node_id <= model._NX_MAX_DEVICES[event_type]:
+        if node_id <= self.NX_MAX_NODES[event_type]:
             # for each event in the multi-state event...
             for topic, payload in topic_list.items():
                 # Get the previously stored topic...
@@ -228,7 +235,7 @@ class NXController:
             # _NX_EVENT_TYPES
             if event_type in model._NX_EVENT_TYPES:
                 # Check if node_id is valid as defined in _NX_MAX_DEVICES
-                if node_id <= model._NX_MAX_DEVICES[event_type]:
+                if node_id <= self.NX_MAX_NODES[event_type]:
                     cached_attribute = self.deviceBank[
                         event_type][node_id-1].get(topic)
                     cached_attribute_time = self.deviceBank[
@@ -260,7 +267,7 @@ class NXController:
         # _NX_EVENT_TYPES
         if event_type in model._NX_EVENT_TYPES:
             # Check if the node_id is valid as defined in _NX_MAX_DEVICES
-            if node_id <= model._NX_MAX_DEVICES[event_type]:
+            if node_id <= self.NX_MAX_NODES[event_type]:
                 # Construct a query based on the NX-587E Specification
                 # Q001 to Q192 is for Zone Queries (Zone 1-192)
                 # Q193 to Q200 is for Partition  Queries (1-9)
@@ -422,7 +429,7 @@ class NXController:
             # Create deviceBank from NX_MAX_DEVICES definition to represent
             # the defined number of devices (e.g. Zones and Partitions)
             self.deviceBank = {}
-            for device, max_item in model._NX_MAX_DEVICES.items():
+            for device, max_item in self.NX_MAX_NODES.items():
                 self.deviceBank[device] = []
                 i = 0
                 while i < max_item:
