@@ -1,4 +1,5 @@
 # Standard library imports
+import random
 import queue
 import time
 from threading import Thread
@@ -41,8 +42,10 @@ class NXController:
     :raises pynx587e.nx587e.KeyMapError: keymap must be USA or AUNZ
     '''
     def __init__(self, port, keymap,
+                 c_id=random.randint(1000, 9999),
                  max_zones=model._NX_DEFAULT_NODES.get('ZN'),
                  max_partitions=model._NX_DEFAULT_NODES.get('PA')):
+
         self._port = port
 
         # model._supported_keymaps documents purpose
@@ -50,6 +53,9 @@ class NXController:
             self._keymap = keymap
         else:
             raise KeyMapError("Unsupported keymap")
+
+        # client ID
+        self.c_id = c_id
 
         # Control Flags
         self._run_threads = False
@@ -189,7 +195,8 @@ class NXController:
 
                     # Construct an event dictionary to
                     # represent the latest event state
-                    individual_event = {"type": event_type,
+                    individual_event = {"client_id": self.c_id,
+                                        "type": event_type,
                                         "node_id": node_id,
                                         "topic": topic,
                                         "payload": payload,
