@@ -128,22 +128,29 @@ class NXController:
                 # advance status_position indicator
                 status_position += 1
 
-            # topic_list is a position dependent list of characters
-            # representing topics in raw_event (starting after the id)
-            #
-            # The topic payload is is represented as as:
-            #  UPPER CASE character: 'TRUE'
-            #  lower case character: 'False'
-            topic_list = {}
-            for i, v in enumerate(
-                    raw_event[status_position:len(raw_event)]
-                    ):
-                topic_list[
-                    model._NX_EVENT_TYPES[
-                        event_type][i]] = v.isupper()
+            # try/except/catch for issue #35 to investigate
+            # corrupt raw_events (e.g those without an ID)
+            try:
+                node_id
+            except NameError:
+                print("corrupt event:", raw_event)
+            else:
+                # topic_list is a position dependent list of characters
+                # representing topics in raw_event (starting after the id)
+                #
+                # The topic payload is is represented as as:
+                #  UPPER CASE character: 'TRUE'
+                #  lower case character: 'False'
+                topic_list = {}
+                for i, v in enumerate(
+                        raw_event[status_position:len(raw_event)]
+                        ):
+                    topic_list[
+                        model._NX_EVENT_TYPES[
+                            event_type][i]] = v.isupper()
 
-            multi_state_event = {'type': event_type,
-                                 'node_id': node_id, "topics": topic_list}
+                multi_state_event = {'type': event_type,
+                                     'node_id': node_id, "topics": topic_list}
 
         return multi_state_event
 
